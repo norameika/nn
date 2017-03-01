@@ -5,9 +5,7 @@ from matplotlib import pylab as plt
 import matplotlib.animation as animation
 import seaborn as sns
 
-
 sns.set(style="darkgrid", palette="muted", color_codes=True)
-
 
 def _rand(a, b):
     return (b-a)*random.random()+a
@@ -142,6 +140,7 @@ class nn(object):
 
         self.line[0].set_data(self.xdata, self.ydata)
         self.ax0.set_title("%-.5f" % error)
+        self.ax0.set_xlabel("epochs")
         for ax in [self.ax0]:
             ax.figure.canvas.draw()
         return self.line
@@ -186,7 +185,7 @@ def demo():
     n.alpha = 0.01
     # n.initialization("random")
     n.animation()
-    # n.initialization("random")
+    # n.initialization("random")pipi
     # train it with some patterns
     # test it
     # for d in n.train(n.pattern, epoch=10000):
