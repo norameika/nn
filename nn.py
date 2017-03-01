@@ -4,38 +4,22 @@ import random
 from matplotlib import pylab as plt
 import matplotlib.animation as animation
 import seaborn as sns
-
+import fanctions
+import utils
 
 sns.set(style="darkgrid", palette="muted", color_codes=True)
 
-
-def _rand(a, b):
-    return (b-a)*random.random()+a
-
-
-def _gen_matrix(i, j, fill=0.):
-    matrix = []
-    for i in range(i):
-        matrix.append([fill] * j)
-    return np.array(matrix)
+# class link(object):
+#     def __init__(self):
 
 
-def _tanh(x):
-    return np.tanh(x)
+class interposer(object):
+    def __init__(self, n_pins):
+        self.n_pins = n_pins
+        self.singals = np.array([0] * n_pins)
 
-
-def _dtanh(y):
-    """d (tanh(x)) / dx = 1-tanh2(x)
-    """
-    return 1. - y**2
-
-
-def _relu(x):
-    return min(1, max(0, x))
-
-
-def _drelu(y):
-    return int(y >= 0)
+    def set_signal(self, input, n_start):
+        pass
 
 
 class nn(object):
@@ -44,8 +28,8 @@ class nn(object):
         self.n_interm = n_interm
         self.n_output = n_output
 
-        self.weights_input_to_interm = _gen_matrix(self.n_interm, self.n_input)
-        self.weights_interm_to_output = _gen_matrix(self.n_output, self.n_interm)
+        self.weights_input_to_interm = utils.gen_matrix(self.n_interm, self.n_input)
+        self.weights_interm_to_output = utils.gen_matrix(self.n_output, self.n_interm)
 
         self.signal_input = np.array([0.] * self.n_input)
         self.signal_interm = np.array([0.] * self.n_interm)
@@ -61,9 +45,9 @@ class nn(object):
         self.line = [self.line0]
         self.xdata, self.ydata = [], []
 
-    def set_activation_fanc(self, fanc, dfanc):
-        self.fanc = fanc
-        self.dfanc = dfanc
+    def set_activation_fanc(self, fancs):
+        self.fanc_interm, self.dfanc_interm, self.fanc_names_interm = zip(*[[f.fanc, f.derv, f.name] for f in [random.choice(fancs) for i in range(self.n_interm)]])
+        self.fanc_output, self.dfanc_output, self.fanc_names_output = zip(*[[f.fanc, f.derv, f.name] for f in [random.choice(fancs) for i in range(self.n_output)]])
 
     def set_pattern(self, pat):
         self.pattern = pat
@@ -74,12 +58,11 @@ class nn(object):
             self.weights_input_to_interm += np.array([np.random.normal(mean, sig, self.n_input) for i in range(self.n_interm)])
             self.weights_interm_to_output += np.array([np.random.normal(mean, sig, self.n_interm) for i in range(self.n_output)])
         elif how == "random":
-            self.weights_input_to_interm += np.array([[_rand(-0.1, 0.2) for i in range(self.n_input)] for j in range(self.n_interm)])
-            self.weights_interm_to_output += np.array([[_rand(-2.0, 2.0) for i in range(self.n_interm)] for j in range(self.n_output)])
+            self.weights_input_to_interm += np.array([[utils.rand(-0.1, 0.2) for i in range(self.n_input)] for j in range(self.n_interm)])
+            self.weights_interm_to_output += np.array([[utils.rand(-2.0, 2.0) for i in range(self.n_interm)] for j in range(self.n_output)])
 
     def forward_propagation(self, inputs):
-        fanc = self.fanc
-        inputs = np.append(inputs, [0])
+        inputs = np.append(inputs, [1])
         if len(inputs) != self.n_input:
             raise ValueError('wrong number of inputs')
 
@@ -87,33 +70,38 @@ class nn(object):
         self.signal_input = inputs
 
         # hidden activations
-        self.signal_interm = np.array([fanc(i) for i in np.dot(self.weights_input_to_interm, self.signal_input)])
+        self.signal_interm = np.array([f(i) for f, i in zip(self.fanc_interm, np.dot(self.weights_input_to_interm, self.signal_input))])
 
         # output activations
-        self.signal_output = np.array([fanc(i) for i in np.dot(self.weights_interm_to_output, self.signal_interm)])
+        self.signal_output = np.array([f(i) for f, i in zip(self.fanc_output, np.dot(self.weights_interm_to_output, self.signal_interm))])
 
         return self.signal_output
 
     def back_propagation(self, targets):
         alpha = self.alpha
-        fanc = self.dfanc
         if len(targets) != self.n_output:
             raise ValueError('wrong number of target values')
 
         # update interm - output weights
         error_output = targets - self.signal_output
-        delta_output = np.array([fanc(i) * j for i, j in zip(self.signal_output, error_output)])
+        delta_output = np.array([f(i) * j for f, i, j in zip(self.dfanc_output, self.signal_output, error_output)])
         self.weights_interm_to_output += alpha * np.array([i * self.signal_interm for i in delta_output])
 
         # update input - interm weights
         error_interm = np.dot(self.weights_interm_to_output.T, delta_output)
-        delta_interm = np.array([fanc(i) * j for i, j in zip(self.signal_interm, error_interm)])
+        delta_interm = np.array([f(i) * j for f, i, j in zip(self.dfanc_interm, self.signal_interm, error_interm)])
         self.weights_input_to_interm += alpha * np.array([i*self.signal_input for i in delta_interm])
         return sum([i ** 2 for i in error_output])
 
     def evaluate(self, patterns):
         for p in patterns:
             print(p[0], '->', self.forward_propagation(p[0]), p[1])
+        self.describe()
+
+    def describe(self):
+        print("size %s-%s-%s" % (self.n_input, self.n_interm, self.n_output))
+        print("fancs input-interm ->", ",".join(self.fanc_names_interm))
+        print("fancs input-interm ->", ",".join(self.fanc_names_output))
 
     def train(self, patterns, epoch=1000, how="online"):
         if how == "online":
@@ -180,9 +168,9 @@ def demo():
 
     # create a network with two input, two hidden, and one output nodes
     n = nn(3, 3, 1)
-    n.set_activation_fanc(_tanh, _dtanh)
+    n.set_activation_fanc([fanctions.tanh, fanctions.relu])
     n.set_pattern(pat)
-    n.initialization("gaussian", 0, 1.)
+    n.initialization("gaussian", 0, 2.)
     n.alpha = 0.01
     # n.initialization("random")
     n.animation()
