@@ -53,7 +53,7 @@ class link(object):
                 error_out, error_in = unit.back_propagation(targets_thisunit)
                 np.append(targets_next, unit.convey_signal_back_bropagation(error_in))
             targets = targets_next
-        return 1
+        return 2
 
 
 class interposer(object):
