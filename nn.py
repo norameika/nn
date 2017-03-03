@@ -35,7 +35,7 @@ class nn(object):
         self.signal_interm = np.array([0.] * self.n_interm)
         self.signal_output = np.array([0.] * self.n_output)
 
-        self.alpha = 0.01  # alpha: learning rate
+        self.alpha = abs(np.random.normal(0., 0.01))  # alpha: learning rate
 
         self.fig, (self.ax0) = plt.subplots(1, 1)
         self.ani = 0
@@ -66,13 +66,13 @@ class nn(object):
         if len(inputs) != self.n_input:
             raise ValueError('wrong number of inputs')
 
-        # input activations
+        # activate input node
         self.signal_input = inputs
 
-        # hidden activations
+        # activate interm node
         self.signal_interm = np.array([f(i) for f, i in zip(self.fanc_interm, np.dot(self.weights_input_to_interm, self.signal_input))])
 
-        # output activations
+        # activate output node
         self.signal_output = np.array([f(i) for f, i in zip(self.fanc_output, np.dot(self.weights_interm_to_output, self.signal_interm))])
 
         return self.signal_output
@@ -82,12 +82,12 @@ class nn(object):
         if len(targets) != self.n_output:
             raise ValueError('wrong number of target values')
 
-        # update interm - output weights
+        # update interm/output weights
         error_output = targets - self.signal_output
         delta_output = np.array([f(i) * j for f, i, j in zip(self.dfanc_output, self.signal_output, error_output)])
         self.weights_interm_to_output += alpha * np.array([i * self.signal_interm for i in delta_output])
 
-        # update input - interm weights
+        # update input/interm weights
         error_interm = np.dot(self.weights_interm_to_output.T, delta_output)
         delta_interm = np.array([f(i) * j for f, i, j in zip(self.dfanc_interm, self.signal_interm, error_interm)])
         self.weights_input_to_interm += alpha * np.array([i*self.signal_input for i in delta_interm])
@@ -100,8 +100,9 @@ class nn(object):
 
     def describe(self):
         print("size %s-%s-%s" % (self.n_input, self.n_interm, self.n_output))
-        print("fancs input-interm ->", ",".join(self.fanc_names_interm))
-        print("fancs input-interm ->", ",".join(self.fanc_names_output))
+        print("alpha ->", self.alpha)
+        print("fancs input/interm ->", ",".join(self.fanc_names_interm))
+        print("fancs interm/ouput ->", ",".join(self.fanc_names_output))
 
     def train(self, patterns, epoch=1000, how="online"):
         if how == "online":
@@ -156,22 +157,17 @@ class nn(object):
 def demo():
     # Teach network XOR function
     pat = [
-        [[0, 0, 0], [0]],
-        [[0, 0, 1], [1]],
-        [[0, 1, 0], [1]],
-        [[0, 1, 1], [0]],
-        [[1, 0, 0], [1]],
-        [[1, 0, 1], [0]],
-        [[1, 1, 0], [0]],
-        [[1, 1, 1], [1]],
+        [[0, 0], [0]],
+        [[0, 1], [1]],
+        [[1, 0], [1]],
+        [[1, 1], [0]],
     ]
 
     # create a network with two input, two hidden, and one output nodes
-    n = nn(3, 3, 1)
+    n = nn(2, 3, 1)
     n.set_activation_fanc([fanctions.tanh, fanctions.relu])
     n.set_pattern(pat)
     n.initialization("gaussian", 0, 2.)
-    n.alpha = 0.01
     # n.initialization("random")
     n.animation()
     # n.initialization("random")

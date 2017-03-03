@@ -1,6 +1,5 @@
 import numpy as np
 
-
 class fanction(object):
     def __init__(self, fanc, derv, name):
         self.fanc = fanc
