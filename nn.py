@@ -1,244 +1,182 @@
 # -*- coding: utf-8 -*-
 import numpy as np
 import random
-from matplotlib import pylab as plt
-import matplotlib.animation as animation
 import seaborn as sns
 import utils
 import functions
+import pickle
+import datetime
+import os
+import time
+import pandas as pd
+import copy
 
 sns.set(style="darkgrid", palette="muted", color_codes=True)
 
 
-class link(object):
-    def __init__(self, n_input, n_output):
-        self.interposer_input = interposer(n_input)
-        self.interposer_interm = interposer(4)
-        self.interposer_output = interposer(1)
-
-        self.layers= list()
-
-        # design 1st layer
-        unit00 = unit(2, 2, 2)
-        unit00.gen_default_connection(n_input, 0)
-        unit01 = unit(2, 2, 2)
-        unit01.gen_default_connection(n_input, 2)
-        self.layer.append([unit00, unit01])
-
-        # design 2nd layer
-        unit10 = unit(4, 4, 1)
-        self.layers.append([unit10, ])
-
-        self.interposers = list(self.interposer_input, self.interposer_interm, self.interposer_output)  # length of interposers should be len(self.layers) + 1
-
-    def set_pattern(self, pat):
-        self.pattern = pat
-
-    def forward_propagation(self, inputs):
-        self.interposers[0].set_signal(inputs)
-        for layer, interposer, interposer_next in zip(self.layers, self.interposers, self.interposers[1:]):
-            output_thislayer = np.array([])
-            for unit in layer:
-                out = unit.forward_propagation(unit.convey_signal_foward_propagation(self.interposers.get_signal()))
-                np.append(output_thislayer, out)
-            interposer_next.set_signal(output_thislayer)
-        return self.interposers[-1].get_signal()
-
-    def back_propagation(self, targets):
-        for layer, interposer, interposer_next in zip(self.layers, self.interposers[::-1], self.interposers[::-1][1:]):
-            sindex = 0
-            targets_next = np.array([])
-            for unit in layer:
-                targets_thisunit = targets[sindex: sindex + unit.n_output]
-                error_out, error_in = unit.back_propagation(targets_thisunit)
-                np.append(targets_next, unit.convey_signal_back_bropagation(error_in))
-            targets = targets_next
-        return 2
-
-
-class interposer(object):
-    def __init__(self, n_pins):
-        self.n_pins = n_pins
-        self.singals = np.array([0] * n_pins)
-
-    def set_signal(self, inputs):
-        self.signals = inputs
-
-    def get_signal(self):
-        return self.signals
-
-
 class unit(object):
-    def __init__(self, n_input, n_interm, n_output, buff=0, fixed=0):
-        self.n_input = n_input + 1  # 1 for constant
-        self.n_interm = n_interm
-        self.n_output = n_output
+    def __init__(self, *args):
+        self.n_layers = list(args)
+        if len(args) < 2:
+            raise ValueError("wrong number of inputs")
+        self.n_layers[0] = self.n_layers[0] + 1  # fisrt layer for constant
 
-        self.weights_input_to_interm = utils.gen_matrix(self.n_interm, self.n_input)
-        self.weights_interm_to_output = utils.gen_matrix(self.n_output, self.n_interm)
+        self.weights = list()
+        for n, n_next in zip(self.n_layers, self.n_layers[1:]):
+            self.weights.append(utils.gen_matrix(n_next, n))
 
-        self.signal_input = np.array([0.] * self.n_input)
-        self.signal_interm = np.array([0.] * self.n_interm)
-        self.signal_output = np.array([0.] * self.n_output)
+        self.signals = list()
+        for n in range(len(self.n_layers)):
+            self.signals.append(np.array([0.] * n))
 
-        self.alpha = abs(np.random.normal(0, 0.01))  # alpha: learning rate
+        self.alpha = abs(np.random.normal(0., 0.001))  # alpha: learning rate
+        self.beta = 0.9
 
-        self.connection, self.connection_inv = np.array([]), np.array([])
+        self.rs = list()
+        for n in self.n_layers[1:]:
+            self.rs.append(np.array([1.] * n))
 
-        self.buffer_unit = buff
-        self.fixed = fixed
-
-        # for animation
-        self.fig, (self.ax0) = plt.subplots(1, 1)
-        self.ani = 0
-        self.line0, = self.ax0.plot(list(), list(), lw=0.5)
-        self.line = [self.line0]
-        self.xdata, self.ydata = list(), list()
-
+        self.name = "no name"
+        self.const = 1
+        self.generation = 0
+        self.score = 0
         # default settnig
+        self.funcs = list()
         self.set_activation_func([functions.tanh, functions.relu])
-        if not self.buffer_unit:
-            self.initialization("gaussian", 0, 2.)
-        else:
-            self.initialization("buff")
-
+        self.initialization("gaussian", 0, 0.1)
         self.cost_func = functions.square_error
 
     def set_activation_func(self, funcs):
-        self.func_interm, self.dfunc_interm, self.func_names_interm = zip(*[[f.func, f.derv, f.name] for f in [random.choice(funcs) for i in range(self.n_interm)]])
-        self.func_output, self.dfunc_output, self.func_names_output = zip(*[[f.func, f.derv, f.name] for f in [random.choice(funcs) for i in range(self.n_output)]])
-
-    def set_pattern(self, pat):
-        self.pattern = pat
-
-    def set_cost_func(self, func):
-        self.cost_func = func
-
-    def gen_default_connection(self, n_input, sindex):
-        if n_input + sindex < self.n_input - 1:
-            raise ValueError("wrong number of inputs")
-        self.connection = utils.gen_matrix(self.n_input - 1, n_input, fill=0.)
-        for i, j in enumerate(range(sindex, sindex + self.n_input - 1)):
-            self.connection[i, j] = 1.
-        self.connection_inv = np.linalg.inv(unit.connection, unit.connection.T)
-
-    def convey_signal_foward_propagation(self, signal):
-        return np.dot(unit.connection, signal)
-
-    def convey_signal_back_bropagation(self, error):
-        return np.dot(np.dot(error, unit.connection.T), self.connection_inv)
+        for n in self.n_layers[1:]:
+            """activation func, derivative of func, name"""
+            self.funcs.append(np.array([[f.func, f.derv, f.name] for f in [random.choice(funcs) for i in range(n)]]).T)
 
     def initialization(self, how, *args):
         if how == "gaussian":
             mean, sig = args
-            self.weights_input_to_interm = np.array([np.random.normal(mean, sig, self.n_input) for i in range(self.n_interm)])
-            self.weights_interm_to_output = np.array([np.random.normal(mean, sig, self.n_interm) for i in range(self.n_output)])
+            for cnt, w in enumerate(self.weights):
+                self.weights[cnt] = np.array([np.random.normal(mean, sig, w.shape[1]) for i in range(w.shape[0])])
         elif how == "random":
-            self.weights_input_to_interm = np.array([[utils.rand(-0.1, 0.2) for i in range(self.n_input)] for j in range(self.n_interm)])
-            self.weights_interm_to_output = np.array([[utils.rand(-2.0, 2.0) for i in range(self.n_interm)] for j in range(self.n_output)])
-        elif how == "buff":
-            if self.n_input - 1 != self.n_interm or self.n_interm != self.n_output:
-                raise ValueError("wrong number of inputs, interm, ouput")
-            self.weights_input_to_interm = utils.gen_ematrix(self.n_input, 1)
-            self.weights_interm_to_output = utils.gen_ematrix(self.n_output, 0)
+            vmin, vmax = args
+            for cnt, w in enumerate(self.weights):
+                self.weights[cnt] = np.array([[utils.rand(-vmin, vmax) for i in range(w.shape[1])] for j in range(w.shape[0])])
 
     def forward_propagation(self, inputs):
-        inputs = np.append(inputs, [1])
-        if len(inputs) != self.n_input:
+        inputs = np.append(inputs, [self.const])
+        if len(inputs) != self.n_layers[0]:
             raise ValueError("wrong number of inputs")
 
-        # input activations
-        self.signal_input = inputs
+        # activate input node
+        self.signals[0] = inputs
 
-        # hidden activations
-        self.signal_interm = np.array([f(i) for f, i in zip(self.func_interm, np.dot(self.weights_input_to_interm, self.signal_input))])
+        for i in range(len(self.signals[1:])):
+            self.signals[i + 1] = np.array([f(i) for f, i in zip(self.funcs[i][0], np.dot(self.weights[i], self.signals[i]))])
 
-        # output activations
-        self.signal_output = np.array([f(i) for f, i in zip(self.func_output, np.dot(self.weights_interm_to_output, self.signal_interm))])
+        return self.signals[-1]
 
-        return self.signal_output
-
-    def back_propagation(self, targets):
-        alpha = self.alpha
-        if len(targets) != self.n_output:
+    def back_propagation(self, targets, epoch):
+        if len(targets) != self.n_layers[-1]:
             raise ValueError("wrong number of target values")
+        error = self.cost_func.derv(self.signals[-1], targets)
+        delta = 0
+        for n in range(len(self.signals[1:])):
+            if n != 0: error = np.dot(self.weights[-n].T, delta)
+            delta = np.array([f(i) for f, i in zip(self.funcs[-n-1][1], self.signals[-n-1])]) * error
+            self.rs[-n-1] = self.beta * self.rs[-n-1] + (1 - self.beta) * (delta * delta).mean()
+            self.weights[-n-1] += self.alpha / (1 + self.generation * 100 + epoch) * np.array([i * self.signals[-n-2] for i in delta / np.sqrt(self.rs[-n-1] + 1E-4)])
 
-        # update interm - output weights
-        error_output = self.cost_func.derv(self.signal_output, targets)
-        delta_output = np.array([f(i) * j for f, i, j in zip(self.dfunc_output, self.signal_output, error_output)])
-        self.weights_interm_to_output += alpha * np.array([i * self.signal_interm for i in delta_output])
+        error_in= np.dot(self.weights[0].T, delta)
 
-        # update input - interm weights
-        error_interm = np.dot(self.weights_interm_to_output.T, delta_output)
-        delta_interm = np.array([f(i) * j for f, i, j in zip(self.dfunc_interm, self.signal_interm, error_interm)])
-        self.weights_input_to_interm += alpha * np.array([i * self.signal_input for i in delta_interm])
+        return self.cost_func.func(targets, self.signals[-1]), error_in
 
-        error_input = np.dot(self.weights_input_to_interm.T, delta_interm)
-
-        return self.cost_func.func(targets, self.signal_output), error_input
-
-    def evaluate(self, patterns):
+    def evaluate(self, patterns, save=0):
+        cnt, corrct = 0, 0
         for p in patterns:
-            print(p[0], '->', self.forward_propagation(p[0]), p[1])
-        self.describe()
+            ans = self.forward_propagation(p[0])
+            corrct += self.evaluator(ans, p[1])
+            cnt += 1
+        print("%d / %d, raito%s" % (corrct, cnt, round(corrct / float(cnt) * 100, 2)))
+        self.score = round(corrct / float(cnt) * 100, 2)
+        self.generation += 1
+        if save:
+            self.save()
+        # self.describe()
+
+    def evaluator(self, res, tar):
+        return 0
+
+    def save(self):
+        now = datetime.datetime.now()
+        if not os.path.exists("./pickle"):
+            os.mkdir("./pickle")
+        with open('./pickle/%s_gen%s_score%s_%s_%02d%02d_%02d%02d%02d' % (self.name, self.generation, str(self.score).replace(".", "p"), now.year, now.month, now.day, now.hour, now.minute, now.second), mode='wb') as f:
+            pickle.dump(self, f)
+            print("saved as % s" % f.name)
+
+    def clone(self, fp):
+        with open(fp, mode='rb') as f:
+            ob = pickle.load(f)
+            self.n_layers = ob.n_layers
+            self.name = ob.name
+            self.weights = ob.weights
+            self.funcs = ob.funcs
+            self.rs = ob.rs
+            self.generation = ob.generation + 1
+            self.score = ob.score
+
+    def reproduce(self, unit, new_unit):
+        for cnt, (w_dad, w_mom) in enumerate(zip(self.weights, unit.weights)):
+            new_unit.weights[cnt] = utils.merge_matrix(w_dad, w_mom, new_unit.weights[cnt].shape)
+        new_unit.alpha = (self.alpha + unit.alpha) / 2
+        new_unit.generation = max([self.generation + unit.generation]) + 1
+        for n in range(len(new_unit.funcs)):
+            names = list()
+            for i in range(new_unit.funcs[n].shape[1]):
+                names = list()
+                if i < self.funcs[n].shape[1]: names.append(self.funcs[n][-1, i])
+                if i < unit.funcs[n].shape[1]: names.append(unit.funcs[n][-1, i])
+                new_unit.funcs[n][0, i], new_unit.funcs[n][1, i], new_unit.funcs[n][2, i] = utils.gen_func(random.choice(names))
+        return new_unit
+
+    def get_latest(self):
+        res = None
+        for f in os.listdir("./pickle"):
+            if not f.startswith(self.name): continue
+            if not res:
+                res = f
+                continue
+            if os.path.getmtime("./pickle/%s" % res) < os.path.getmtime("./pickle/%s" % f):
+                res = f
+        print("copied % s" % res)
+        self.clone("./pickle/%s" % res)
 
     def describe(self):
-        print("size %s-%s-%s" % (self.n_input, self.n_interm, self.n_output))
-        print("alpha ->", self.alpha)
-        print("funcs input-interm ->", ",".join(self.func_names_interm))
-        print("funcs input-interm ->", ",".join(self.func_names_output))
+        print("\tsize ->",  "-".join(map(str, self.n_layers)))
+        print("\talpha ->", self.alpha)
+        print("\tgeneration ->", self.generation)
 
-    def train(self, patterns, epoch=10000, how="online"):
+    def train(self, patterns, epoch=10000, how="online", interval=1000, save=0):
         if how == "online":
+            times = np.array([])
             for i in range(epoch):
                 error = 0.0
-                for p in patterns:
+                s = time.time()
+                for p in random.shuffle(patterns[::(-1) ** epoch]):
                     inputs = p[0]
                     targets = p[1]
                     self.forward_propagation(inputs)
-                    error_this, _ = self.back_propagation(targets)
+                    error_this, _ = self.back_propagation(targets, epoch)
                     error = error + error_this
-                if i % 1000 == 0:
+                error /= len(patterns)
+                times = np.append(times, time.time() - s)
+                if i % interval == 0:
+                    print("epoch%s, error%-.5f, sec/epoc %-.3fsec, time remains %-.1fsec" % (i, error, time.time() - s, times.mean() * (epoch - i)))
                     yield i, error
+            if save:
+                self.save()
 
         elif how == "batch":
             pass
-
-    def run(self, data):
-        # update the data
-        epoch, error = data
-        # self.xdata, self.y0data, = [], []
-        self.xdata.append(epoch)
-        self.ydata.append(error)
-
-        self.ax0.set_ylim(-max(self.ydata) * 0.1, max(self.ydata) * 1.2)
-        self.ax0.set_xlim(-max(self.xdata) * 0.1, max(self.xdata) * 1.2)
-
-        self.line[0].set_data(self.xdata, self.ydata)
-        self.ax0.set_title("%-.5f" % error)
-        self.ax0.set_xlabel("epochs")
-        for ax in [self.ax0]:
-            ax.figure.canvas.draw()
-        return self.line
-
-    def animation(self):
-        self.ani = animation.FuncAnimation(self.fig, self.run, self.arrange_for_animation, interval=100, blit=False, repeat=False)
-        plt.show()
-        return self.ani
-
-    def arrange_for_animation(self):
-        for d in self.train(self.pattern, epoch=100000):
-            i, error = d
-            print(i, 'error %-.5f' % error)
-            yield d
-
-    def show(self, **kwargs):
-        fig = plt.figure()
-        fig.add_subplot(111)
-        plt.plot([[], []], lw=1)
-        plt.title("test", fontsize=16)
-        plt.show()
-
 
 if __name__ == '__main__':
     pass

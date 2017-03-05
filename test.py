@@ -1,7 +1,9 @@
 import nn
 import utils
 import numpy as np
-
+import pandas as pd
+import random
+import itertools
 
 def check_nn_gen_delault_connection():
     n = nn.unit(2, 2, 2)
@@ -9,28 +11,38 @@ def check_nn_gen_delault_connection():
     print(n.connection)
 
 
-def demo_singla_unit():
-    pat = [
-        [[0, 0, 0], [0]],
-        [[0, 0, 1], [1]],
-        [[0, 1, 0], [1]],
-        [[0, 1, 1], [0]],
-        [[1, 0, 0], [1]],
-        [[1, 0, 1], [0]],
-        [[1, 1, 0], [0]],
-        [[1, 1, 1], [0]],
-    ]
+def check_clone(fp):
+    ml = nn.link(0, 0)
+    ml.clone(fp)
+    ml.describe()
 
-    # create a network with two input, two hidden, and one output nodes
-    n = nn.unit(3, 4, 1)
-    n.set_pattern(pat)
-    # n.initialization("random")
-    n.animation()
-    n.evaluate(pat)
+
+def check_get_latest():
+    ml = nn.link(0, 0)
+    ml.get_latest()
+
+
+def check_ematrix():
+    print(utils.gen_ematrix(5))
+
+
+def check_gen_id(n):
+    print(utils.gen_id(n))
 
 
 def anonymous():
-    a = np.array([[1, 0], [0, 2]])
+    a = [1,2,3,]
+    for d in itertools.combinations(a, 2):
+        print(d)
+    exit()
+    a = np.array([[10, 20, 30], [1, 2, 3], [1, 2, 3], [1, 2, 3]])
+    b = np.array([[1, 2, 3, 4], [10, 10, 10, 10]])
+    # f_ = lambda x: np.random.normal(x, 10)
+    # b = np.frompyfunc([f_, f_, f_, f_, f_])
+    # print(b * a)
+    # print(1 / np.sqrt(b))
+    # print(a.std())
+    exit()
     b = 5
     a = [1, 2, b, 4, 5]
     for i, j in zip(a, a[1:]):
@@ -40,11 +52,12 @@ def anonymous():
     # print(a(*(1, 2)))
 
 
-def check_ematrix():
-    print(utils.gen_ematrix(5))
-
 if __name__ == '__main__':
+    # check_get_latest()
+    # check_clone("./pickle/gen0_score0p4989_2017_0303_140511")
     # check_nn_gen_delault_connection()
-    # anonymous()
-    demo_singla_unit()
+    # check_gen_id(2)
+    anonymous()
+    # demo_singl_unit()
+    # demo_linked()
     # check_ematrix()
