@@ -31,7 +31,9 @@ def check_gen_id(n):
 
 
 def anonymous():
-    a = [1,2,3,]
+    a = np.array([1,2,3,4,5,6,7,8,9])
+    print(utils.dropout(a))
+    exit()
     for d in itertools.combinations(a, 2):
         print(d)
     exit()

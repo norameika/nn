@@ -38,4 +38,21 @@ def f_square_error(output, targets):
 def f_de_square_error(output, targets):
     return (targets - output)
 
+
 square_error = function(f_square_error, f_de_square_error, "square_error")
+
+
+# def f_softmax(output, targets):
+#     return -sum([j * np.log(i) for i, j in zip(output, targets)]) / len(targets)
+
+
+def f_softmax(x, xs):
+    s = sum([np.exp(i) for i in xs])
+    return np.exp(x) / s
+
+
+def f_de_softmax(x, xs):
+    return (targets - output)
+
+
+softmax = function(f_softmax, f_de_softmax, "softmax")

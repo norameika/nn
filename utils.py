@@ -51,13 +51,20 @@ def merge_matrix(a, b, shape):
     res = gen_matrix(new_nrow, new_ncol)
     for r in range(new_nrow):
         for c in range(new_ncol):
-            val = 0
+            val = 1
             if r < a.shape[0] and c < a.shape[1]:
-                val += a[r, c]
+                val *= a[r, c]
             if r < b.shape[0] and c < b.shape[1]:
-                val += b[r, c]
+                val *= b[r, c]
             res[r, c] = val
     return res
+
+
+def dropout(signal):
+    drop = np.vectorize(lambda x: np.random.choice([0, x], 1, p=np.array([0.4, 0.6])))
+    return 1. / 0.6 * drop(signal)
+
+
 
 
 class animator(object):

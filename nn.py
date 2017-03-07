@@ -11,6 +11,7 @@ import time
 import pandas as pd
 import copy
 
+
 sns.set(style="darkgrid", palette="muted", color_codes=True)
 
 
@@ -22,8 +23,11 @@ class unit(object):
         self.n_layers[0] = self.n_layers[0] + 1  # fisrt layer for constant
 
         self.weights = list()
+        self.weights_buff = list()
         for n, n_next in zip(self.n_layers, self.n_layers[1:]):
-            self.weights.append(utils.gen_matrix(n_next, n))
+            mtrx = utils.gen_matrix(n_next, n)
+            self.weights.append(mtrx)
+            self.weights_buff.append(mtrx)
 
         self.signals = list()
         for n in range(len(self.n_layers)):
@@ -31,10 +35,11 @@ class unit(object):
 
         self.alpha = abs(np.random.normal(0., 0.001))  # alpha: learning rate
         self.beta = 0.9
+        self.gamma = 0.9
 
         self.rs = list()
         for n in self.n_layers[1:]:
-            self.rs.append(np.array([1.] * n))
+            self.rs.append(np.array([10.] * n))
 
         self.name = "no name"
         self.const = 1
@@ -70,24 +75,27 @@ class unit(object):
         self.signals[0] = inputs
 
         for i in range(len(self.signals[1:])):
-            self.signals[i + 1] = np.array([f(i) for f, i in zip(self.funcs[i][0], np.dot(self.weights[i], self.signals[i]))])
+            self.signals[i + 1] = np.array([f(j) for f, j in zip(self.funcs[i][0], np.dot(self.weights[i], self.signals[i]))])
 
         return self.signals[-1]
 
     def back_propagation(self, targets, epoch):
+        """momentan SDG"""
         if len(targets) != self.n_layers[-1]:
             raise ValueError("wrong number of target values")
         error = self.cost_func.derv(self.signals[-1], targets)
         delta = 0
+        buff = self.weights
         for n in range(len(self.signals[1:])):
             if n != 0: error = np.dot(self.weights[-n].T, delta)
             delta = np.array([f(i) for f, i in zip(self.funcs[-n-1][1], self.signals[-n-1])]) * error
             self.rs[-n-1] = self.beta * self.rs[-n-1] + (1 - self.beta) * (delta * delta).mean()
-            self.weights[-n-1] += self.alpha / (1 + self.generation * 100 + epoch) * np.array([i * self.signals[-n-2] for i in delta / np.sqrt(self.rs[-n-1] + 1E-4)])
+            self.weights[-n-1] += self.alpha / (1 + self.generation * 100 + epoch) * np.array([i * self.signals[-n-2] for i in delta / np.sqrt(self.rs[-n-1] + 1E-4)]) + self.gamma * (self.weights[-n-1] - self.weights_buff[-n-1])
+        self.weights_buff = buff
 
-        error_in= np.dot(self.weights[0].T, delta)
+        error_in = np.dot(self.weights[0].T, delta)
 
-        return self.cost_func.func(targets, self.signals[-1]), error_in
+        return self.cost_func.func(self.signals[-1], targets), error_in
 
     def evaluate(self, patterns, save=0):
         cnt, corrct = 0, 0
@@ -151,17 +159,18 @@ class unit(object):
         self.clone("./pickle/%s" % res)
 
     def describe(self):
-        print("\tsize ->",  "-".join(map(str, self.n_layers)))
-        print("\talpha ->", self.alpha)
-        print("\tgeneration ->", self.generation)
+        print("\tsize ->" + "-".join(map(str, self.n_layers)))
+        print("\talpha ->" + "%s" % self.alpha)
+        print("\tgeneration ->" + "%s" % self.generation)
 
-    def train(self, patterns, epoch=10000, how="online", interval=1000, save=0):
+    def train(self, patterns, epoch=100, how="online", interval=1, save=0):
         if how == "online":
             times = np.array([])
             for i in range(epoch):
                 error = 0.0
                 s = time.time()
-                for p in random.shuffle(patterns[::(-1) ** epoch]):
+                random.shuffle(patterns)
+                for p in patterns:
                     inputs = p[0]
                     targets = p[1]
                     self.forward_propagation(inputs)
