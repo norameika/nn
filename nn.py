@@ -33,6 +33,7 @@ class unit(object):
         for n in range(len(self.n_layers)):
             self.signals.append(np.array([0.] * n))
 
+        # hyper parameters
         self.alpha = abs(np.random.normal(0., 0.001))  # alpha: learning rate
         self.beta = 0.9
         self.gamma = 0.9
@@ -48,7 +49,7 @@ class unit(object):
         # default settnig
         self.funcs = list()
         self.set_activation_func([functions.tanh, functions.relu])
-        self.initialization("gaussian", 0, 0.1)
+        self.initialization("gaussian", 0, 0.001)
         self.cost_func = functions.square_error
 
     def set_activation_func(self, funcs):
@@ -73,11 +74,10 @@ class unit(object):
 
         # activate input node
         self.signals[0] = inputs
-
         for i in range(len(self.signals[1:])):
             self.signals[i + 1] = np.array([f(j) for f, j in zip(self.funcs[i][0], np.dot(self.weights[i], self.signals[i]))])
 
-        return self.signals[-1]
+        return self.cost_func.func(self.signals[-1])
 
     def back_propagation(self, targets, epoch):
         """momentan SDG"""
@@ -90,12 +90,13 @@ class unit(object):
             if n != 0: error = np.dot(self.weights[-n].T, delta)
             delta = np.array([f(i) for f, i in zip(self.funcs[-n-1][1], self.signals[-n-1])]) * error
             self.rs[-n-1] = self.beta * self.rs[-n-1] + (1 - self.beta) * (delta * delta).mean()
-            self.weights[-n-1] += self.alpha / (1 + self.generation * 100 + epoch) * np.array([i * self.signals[-n-2] for i in delta / np.sqrt(self.rs[-n-1] + 1E-4)]) + self.gamma * (self.weights[-n-1] - self.weights_buff[-n-1])
+
+            self.weights[-n-1] += self.alpha * np.array([i * self.signals[-n-2] for i in delta / np.sqrt(self.rs[-n-1] + 1E-4)]) + self.gamma * (self.weights[-n-1] - self.weights_buff[-n-1])
         self.weights_buff = buff
 
         error_in = np.dot(self.weights[0].T, delta)
 
-        return self.cost_func.func(self.signals[-1], targets), error_in
+        return self.cost_func.cost(self.signals[-1], targets, ), error_in
 
     def evaluate(self, patterns, save=0):
         cnt, corrct = 0, 0
@@ -108,6 +109,7 @@ class unit(object):
         self.generation += 1
         if save:
             self.save()
+        return corrct / float(cnt)
         # self.describe()
 
     def evaluator(self, res, tar):
@@ -127,10 +129,13 @@ class unit(object):
             self.n_layers = ob.n_layers
             self.name = ob.name
             self.weights = ob.weights
+            self.weights_buff = ob.weights_buff
             self.funcs = ob.funcs
             self.rs = ob.rs
             self.generation = ob.generation + 1
             self.score = ob.score
+            self.alpha, self.beta, self.gamma = ob.alpha, ob.beta, ob.gamma
+            print("copied % s" % f)
 
     def reproduce(self, unit, new_unit):
         for cnt, (w_dad, w_mom) in enumerate(zip(self.weights, unit.weights)):
@@ -138,12 +143,14 @@ class unit(object):
         new_unit.alpha = (self.alpha + unit.alpha) / 2
         new_unit.generation = max([self.generation + unit.generation]) + 1
         for n in range(len(new_unit.funcs)):
-            names = list()
             for i in range(new_unit.funcs[n].shape[1]):
                 names = list()
+                if n <= len(unit.funcs) - 1:
+                    if i < unit.funcs[n].shape[1]: names.append(unit.funcs[n][-1, i])
+                    continue
                 if i < self.funcs[n].shape[1]: names.append(self.funcs[n][-1, i])
-                if i < unit.funcs[n].shape[1]: names.append(unit.funcs[n][-1, i])
                 new_unit.funcs[n][0, i], new_unit.funcs[n][1, i], new_unit.funcs[n][2, i] = utils.gen_func(random.choice(names))
+        new_unit.name = unit.name + "jr"
         return new_unit
 
     def get_latest(self):
@@ -159,17 +166,17 @@ class unit(object):
         self.clone("./pickle/%s" % res)
 
     def describe(self):
-        print("\tsize ->" + "-".join(map(str, self.n_layers)))
-        print("\talpha ->" + "%s" % self.alpha)
-        print("\tgeneration ->" + "%s" % self.generation)
+        print("\tsize ->", "-".join(map(str, self.n_layers)))
+        print("\talpha, beta, gamma -> %-.5f, %-.2f, %-.2f" % (self.alpha, self.beta, self.gamma))
+        print("\tgeneration ->", self.generation)
 
-    def train(self, patterns, epoch=100, how="online", interval=1, save=0):
-        if how == "online":
+    def train(self, patterns, eval_fanc=0, arg=0, epoch=10000, how="online, Momentumsgd", interval=1000, save=0):
+        if how == "online, Momentumsgd":
             times = np.array([])
             for i in range(epoch):
                 error = 0.0
                 s = time.time()
-                random.shuffle(patterns)
+                random.shuffle(patterns[::(-1) ** epoch])
                 for p in patterns:
                     inputs = p[0]
                     targets = p[1]
@@ -180,7 +187,10 @@ class unit(object):
                 times = np.append(times, time.time() - s)
                 if i % interval == 0:
                     print("epoch%s, error%-.5f, sec/epoc %-.3fsec, time remains %-.1fsec" % (i, error, time.time() - s, times.mean() * (epoch - i)))
-                    yield i, error
+                    if eval_fanc:
+                        yield i, error, eval_fanc(*arg)
+                    else:
+                        yield i, error
             if save:
                 self.save()
 

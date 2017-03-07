@@ -51,12 +51,12 @@ def merge_matrix(a, b, shape):
     res = gen_matrix(new_nrow, new_ncol)
     for r in range(new_nrow):
         for c in range(new_ncol):
-            val = 1
+            val = list()
             if r < a.shape[0] and c < a.shape[1]:
-                val *= a[r, c]
+                val.append(a[r, c])
             if r < b.shape[0] and c < b.shape[1]:
-                val *= b[r, c]
-            res[r, c] = val
+                val.append(b[r, c])
+            res[r, c] = sum(val)
     return res
 
 
@@ -65,30 +65,40 @@ def dropout(signal):
     return 1. / 0.6 * drop(signal)
 
 
+def amp(inputs):
+    return functions.f_tanh(functions.f_tanh(functions.f_tanh(inputs)))
 
 
 class animator(object):
     def __init__(self):
         self.fig, (self.ax0) = plt.subplots(1, 1)
         self.ani = 0
+        self.ax1 = self.ax0.twinx()
         self.line0, = self.ax0.plot(list(), list(), lw=0.5)
-        self.ax0.set_yscale('log')
-        self.line = [self.line0]
-        self.xdata, self.ydata = list(), list()
+        self.line1, = self.ax1.plot(list(), list(), lw=0.5, color="red")
+        # self.ax0.set_yscale('log')
+        self.line = [self.line0, self.line1]
+        self.xdata, self.ydata0, self.ydata1 = list(), list(), list()
 
     def run(self, data):
         # update the data
-        epoch, error = data
+        epoch, y0, y1 = data
         # self.xdata, self.y0data, = [], []
         self.xdata.append(epoch)
-        self.ydata.append(error)
+        self.ydata0.append(y0)
+        self.ydata1.append(y1)
 
-        self.ax0.set_ylim((10 ** np.ceil(max(-6, np.log10(min(self.ydata))) - 2)), 10 ** np.ceil(np.log10(max(self.ydata)) + 2))
+        # self.ax0.set_ylim((10 ** np.ceil(max(-6, np.log10(min(self.ydata0))) - 2)), 10 ** np.ceil(np.log10(max(self.ydata0)) + 2))
+        if min(self.ydata0) != np.nan and max(self.ydata0) != np.inf:
+            self.ax0.set_ylim(min(self.ydata0), max(self.ydata0)*1.1)
+        self.ax1.set_ylim(0, 1)
         self.ax0.set_xlim(-(max(self.xdata) + 0.1) * 0.1, (max(self.xdata) + 0.1) * 1.2)
 
-        self.line[0].set_data(self.xdata, self.ydata)
-        self.ax0.set_title("%-.5f" % error)
+        self.line[0].set_data(self.xdata, self.ydata0)
+        self.line[1].set_data(self.xdata, self.ydata1)
         self.ax0.set_xlabel("epochs")
+        self.ax1.set_ylabel("accuracy")
+        self.ax0.set_ylabel("error")
         for ax in [self.ax0]:
             ax.figure.canvas.draw()
         return self.line
@@ -102,7 +112,7 @@ class animator(object):
 
     def func_dammy(self):
         for i, j in enumerate(range(10000)):
-            yield i, j
+            yield i, j, 0.5
 
 if __name__ == '__main__':
     ani = animator()

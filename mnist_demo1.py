@@ -4,6 +4,8 @@ import numpy as np
 import utils
 import itertools
 import random
+import functions
+import os
 
 
 class myunit(nn.unit):
@@ -11,6 +13,7 @@ class myunit(nn.unit):
         nn.unit.__init__(self, *args)
 
     def evaluator(self, res, tar):
+        if res.max() != res.max(): return 0
         if list(res).index(res.max()) == list(tar).index(1):
             return 1
         else:
@@ -42,17 +45,19 @@ def pat_eval(fp):
 def mnist(fp):
     # create a network with two input, two hidden, and one output nodes
     def add_newer(gen):
-        # layer0 = np.random.randint(200, 600)
-        # layer1 = np.random.randint(12, layer0)
-        # layer2 = np.random.randint(11, layer1)
-        # layer3 = np.random.randint(10, layer2)
-        u = myunit(784, 80, 10)
-        u.initialization("gaussian", -0.001, 0.001)
-        u.alpha = 0.001
+        u = myunit(784, 100, 10)
+        u.initialization("gaussian", 0, 0.001)
+        u.alpha = 0.0001
         u.beta = 0.9
         u.gamma = 0.9
-        # u.cost_func = functions.square_error
-        u.name = "panda_s%s_%s" % (gen, utils.gen_id(2))
+
+        # bkm for sqerr
+        # u.initialization("gaussian", 0, 0.001)
+        # u.alpha = 0.0001
+        # u.beta = 0.9
+        # u.gamma = 0.9
+
+        u.name = "cat_s%s_%s" % (gen, utils.gen_id(2))
         return u
 
     def add_child(g):
@@ -62,41 +67,70 @@ def mnist(fp):
                 n_layers_new = [max(i, j) for i, j in zip(u0.n_layers, u1.n_layers)]
             else:
                 n_layers_new = [min(i, j) for i, j in zip(u0.n_layers, u1.n_layers)]
-            n_layers_new = (np.array(n_layers_new) - np.array([1, 0, 0])).tolist()
+            n_layers_new = (np.array(n_layers_new) - np.array([1, 0, 0, 0, 0])).tolist()
             child = myunit(*n_layers_new)
-            child.name = "panda_s%s_%s" % (gen, u0.name.split("_")[-1]+u1.name.split("_")[-1])
+            child.name = "dog_s%s_%s" % (gen, u0.name.split("_")[-1]+u1.name.split("_")[-1])
             res.append(u0.reproduce(u1, child))
         return res
 
-    group = list()
-    survier = 2
+    def get_pickle(name):
+        res = list()
+        for f in os.listdir("./pickle"):
+            if name in f: res.append(f)
+        res = sorted(res, key=lambda x: os.path.getmtime("./pickle/%s" % x), reverse=1)[0]
+        return "./pickle/%s" % res
 
-    """initialize"""
-    for i in range(1):
-        group.append(add_newer(0))
-    for u in group:
-        sindex = random.randint(0, 2000 * (int(40000 / 2000.) - 1))
-        pat = pat_train(fp, sindex, 2000)
-        print("%s start training for %s x %s datasets from %s" % (u.name, pat[0][0].shape, len(pat), sindex))
-        u.describe()
-        for _ in u.train(pat, epoch=5, interval=1): pass
-        u.evaluate(pat_eval(fp), save=1)
+
+    group = list()
+    survier = 3
+    u = myunit(784, 1000, 500, 10)
+    u.initialization("gaussian", 0, 0.0001)
+    u_dad = myunit(1, 1, 1)
+    u_dad.clone(get_pickle("xk"))
+    u = u.reproduce(u_dad, u)
+    u.alpha = 0.00001
+    u.beta = 0.9
+    u.gamma = 0.9
+    # # u.clone(get_pickle("xk"))
+    # u.alpha = 0.00001
+
+    sindex = random.randint(0, 10000)
+    pat = pat_train(fp, 0, 40000)
+    print("%s start training for %s x %s datasets from %s" % (u.name, pat[0][0].shape, len(pat), sindex))
+    u.describe()
+    an = utils.animator()
+    an.arrange_for_animation(u.train(pat, u.evaluate, (pat_eval(fp), 1), epoch=50, interval=1))
+    an.animation()
+    # for _ in u.train(pat, epoch=20, interval=1): pass
+    u.evaluate(pat_eval(fp), save=1)
     group = sorted(group, key=lambda x: x.score, reverse=1)
     print("genration%s, " % 0, ", ".join(["%-.2f" % x.score for x in group]))
 
     exit()
 
+    # """pickking"""
+    # group = group[:2]
+    # for u in group:
+    #     sindex = random.randint(0, 3500)
+    #     pat = pat_train(fp, sindex, 35000)
+    #     print("%s start training for %s x %s datasets from %s" % (u.name, pat[0][0].shape, len(pat), sindex))
+    #     u.describe()
+    #     for _ in u.train(pat, epoch=50, interval=1): pass
+    #     u.evaluate(pat_eval(fp), save=1)
+
+    group[:survier]
+
     """ecocsyctem"""
     for gen in range(1, 10):
-        sindex = random.randint(0, 17000)
-        pat = pat_train(fp, sindex, 20000)
-        group = group[:survier]
-        group.append(add_newer(gen))
+        sindex = random.randint(0, 3500)
+        pat = pat_train(fp, sindex, 35000)
+        group = group[:survier-1]
+        # group.append(add_newer(gen))
         group += add_child(group)
         for u in group:
             print("%s start training for %s x %s datasets from %s" % (u.name, pat[0][0].shape, len(pat), sindex))
             u.describe()
-            for _ in u.train(pat, epoch=20, interval=1): pass
+            for _ in u.train(pat, epoch=25, interval=1): pass
             u.evaluate(pat_eval(fp), save=1)
 
         group = sorted(group, key=lambda x: x.score, reverse=1)

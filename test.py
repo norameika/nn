@@ -4,6 +4,8 @@ import numpy as np
 import pandas as pd
 import random
 import itertools
+import functions
+
 
 def check_nn_gen_delault_connection():
     n = nn.unit(2, 2, 2)
@@ -31,28 +33,9 @@ def check_gen_id(n):
 
 
 def anonymous():
-    a = np.array([1,2,3,4,5,6,7,8,9])
-    print(utils.dropout(a))
-    exit()
-    for d in itertools.combinations(a, 2):
-        print(d)
-    exit()
-    a = np.array([[10, 20, 30], [1, 2, 3], [1, 2, 3], [1, 2, 3]])
-    b = np.array([[1, 2, 3, 4], [10, 10, 10, 10]])
-    # f_ = lambda x: np.random.normal(x, 10)
-    # b = np.frompyfunc([f_, f_, f_, f_, f_])
-    # print(b * a)
-    # print(1 / np.sqrt(b))
-    # print(a.std())
-    exit()
-    b = 5
-    a = [1, 2, b, 4, 5]
-    for i, j in zip(a, a[1:]):
-        print(i, j)
-        b = 100
-    # a = lambda a, b: a + b
-    # print(a(*(1, 2)))
-
+    a = np.array([1,2,3])
+    print(functions.f_softmax(a))
+    pass
 
 if __name__ == '__main__':
     # check_get_latest()
