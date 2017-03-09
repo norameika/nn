@@ -23,6 +23,13 @@ def gen_matrix(i, j, fill=0.):
     return np.array(matrix)
 
 
+def gen_mask(i, j):
+    matrix = []
+    for i in range(i):
+        matrix.append([True] * j)
+    return np.array(matrix)
+
+
 def gen_ematrix(n, inp=0):
     matrix = []
     for i in range(n):
@@ -57,6 +64,21 @@ def merge_matrix(a, b, shape):
             if r < b.shape[0] and c < b.shape[1]:
                 val.append(b[r, c])
             res[r, c] = sum(val)
+    return res
+
+
+def merge_matrix_mask(a, b, shape):
+    new_nrow = shape[0]
+    new_ncol = shape[1]
+    res = gen_matrix(new_nrow, new_ncol)
+    for r in range(new_nrow):
+        for c in range(new_ncol):
+            val = list()
+            if r < a.shape[0] and c < a.shape[1]:
+                val.append(a[r, c])
+            if r < b.shape[0] and c < b.shape[1]:
+                val.append(b[r, c])
+            res[r, c] = np.prod(val)
     return res
 
 

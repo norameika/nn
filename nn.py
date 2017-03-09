@@ -24,19 +24,25 @@ class unit(object):
 
         self.weights = list()
         self.weights_buff = list()
+        self.weights_mask = list()
         for n, n_next in zip(self.n_layers, self.n_layers[1:]):
             mtrx = utils.gen_matrix(n_next, n)
+            mask = utils.gen_mask(n_next, n)
             self.weights.append(mtrx)
             self.weights_buff.append(mtrx)
+            self.weights_mask.append(mask)
+
 
         self.signals = list()
         for n in range(len(self.n_layers)):
             self.signals.append(np.array([0.] * n))
 
         # hyper parameters
-        self.alpha = abs(np.random.normal(0., 0.001))  # alpha: learning rate
+        self.alpha = 0. # alpha: learning rate, placehoder
         self.beta = 0.9
         self.gamma = 0.9
+        self.activation_temp = 0.01
+        self.initialization("gaussian", 0, self.activation_temp)
 
         self.rs = list()
         for n in self.n_layers[1:]:
@@ -49,7 +55,7 @@ class unit(object):
         # default settnig
         self.funcs = list()
         self.set_activation_func([functions.tanh, functions.relu])
-        self.initialization("gaussian", 0, 0.001)
+        # self.initialization("gaussian", 0, 0.001)
         self.cost_func = functions.square_error
 
     def set_activation_func(self, funcs):
@@ -61,7 +67,7 @@ class unit(object):
         if how == "gaussian":
             mean, sig = args
             for cnt, w in enumerate(self.weights):
-                self.weights[cnt] = np.array([np.random.normal(mean, sig, w.shape[1]) for i in range(w.shape[0])])
+                self.weights[cnt] = np.array([abs(np.random.normal(mean, sig, w.shape[1])) for i in range(w.shape[0])])
         elif how == "random":
             vmin, vmax = args
             for cnt, w in enumerate(self.weights):
@@ -90,8 +96,7 @@ class unit(object):
             if n != 0: error = np.dot(self.weights[-n].T, delta)
             delta = np.array([f(i) for f, i in zip(self.funcs[-n-1][1], self.signals[-n-1])]) * error
             self.rs[-n-1] = self.beta * self.rs[-n-1] + (1 - self.beta) * (delta * delta).mean()
-
-            self.weights[-n-1] += self.alpha * np.array([i * self.signals[-n-2] for i in delta / np.sqrt(self.rs[-n-1] + 1E-4)]) + self.gamma * (self.weights[-n-1] - self.weights_buff[-n-1])
+            self.weights[-n-1] += self.weights_mask[-n-1] * self.alpha * np.array([i * self.signals[-n-2] for i in delta / np.sqrt(self.rs[-n-1] + 1E-3)]) + self.gamma * (self.weights[-n-1] - self.weights_buff[-n-1])
         self.weights_buff = buff
 
         error_in = np.dot(self.weights[0].T, delta)
@@ -102,10 +107,11 @@ class unit(object):
         cnt, corrct = 0, 0
         for p in patterns:
             ans = self.forward_propagation(p[0])
+            # print(ans, sum(ans))
             corrct += self.evaluator(ans, p[1])
             cnt += 1
         print("%d / %d, raito%s" % (corrct, cnt, round(corrct / float(cnt) * 100, 2)))
-        self.score = round(corrct / float(cnt) * 100, 2)
+        self.score = max(self.score, round(corrct / float(cnt) * 100, 2))
         self.generation += 1
         if save:
             self.save()
@@ -130,6 +136,7 @@ class unit(object):
             self.name = ob.name
             self.weights = ob.weights
             self.weights_buff = ob.weights_buff
+            self.weights_mask = [~utils.gen_mask(*w.shape) for w in ob.weights_mask]
             self.funcs = ob.funcs
             self.rs = ob.rs
             self.generation = ob.generation + 1
@@ -138,8 +145,9 @@ class unit(object):
             print("copied % s" % f)
 
     def reproduce(self, unit, new_unit):
-        for cnt, (w_dad, w_mom) in enumerate(zip(self.weights, unit.weights)):
+        for cnt, (w_dad, w_mom, w_dad_mask, w_mom_mask) in enumerate(zip(self.weights, unit.weights, self.weights_mask, unit.weights_mask)):
             new_unit.weights[cnt] = utils.merge_matrix(w_dad, w_mom, new_unit.weights[cnt].shape)
+            new_unit.weights_mask[cnt] = utils.merge_matrix_mask(w_dad_mask, w_mom_mask, new_unit.weights_mask[cnt].shape)
         new_unit.alpha = (self.alpha + unit.alpha) / 2
         new_unit.generation = max([self.generation + unit.generation]) + 1
         for n in range(len(new_unit.funcs)):
@@ -167,7 +175,7 @@ class unit(object):
 
     def describe(self):
         print("\tsize ->", "-".join(map(str, self.n_layers)))
-        print("\talpha, beta, gamma -> %-.5f, %-.2f, %-.2f" % (self.alpha, self.beta, self.gamma))
+        print("\talpha, beta, gamma, temp -> %-.5f, %-.2f, %-.2f, %-.5f" % (self.alpha, self.beta, self.gamma, self.activation_temp))
         print("\tgeneration ->", self.generation)
 
     def train(self, patterns, eval_fanc=0, arg=0, epoch=10000, how="online, Momentumsgd", interval=1000, save=0):
@@ -191,6 +199,7 @@ class unit(object):
                         yield i, error, eval_fanc(*arg)
                     else:
                         yield i, error
+                if error != error: break
             if save:
                 self.save()
 
