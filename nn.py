@@ -32,7 +32,6 @@ class unit(object):
             self.weights_buff.append(mtrx)
             self.weights_mask.append(mask)
 
-
         self.signals = list()
         for n in range(len(self.n_layers)):
             self.signals.append(np.array([0.] * n))
@@ -144,6 +143,9 @@ class unit(object):
             self.alpha, self.beta, self.gamma = ob.alpha, ob.beta, ob.gamma
             print("copied % s" % f)
 
+    def reset_mask(self):
+        self.weights_mask = [utils.gen_mask(*w.shape) for w in self.weights_mask]
+
     def reproduce(self, unit, new_unit):
         for cnt, (w_dad, w_mom, w_dad_mask, w_mom_mask) in enumerate(zip(self.weights, unit.weights, self.weights_mask, unit.weights_mask)):
             new_unit.weights[cnt] = utils.merge_matrix(w_dad, w_mom, new_unit.weights[cnt].shape)
@@ -152,12 +154,12 @@ class unit(object):
         new_unit.generation = max([self.generation + unit.generation]) + 1
         for n in range(len(new_unit.funcs)):
             for i in range(new_unit.funcs[n].shape[1]):
-                names = list()
+                name = str()
                 if n <= len(unit.funcs) - 1:
-                    if i < unit.funcs[n].shape[1]: names.append(unit.funcs[n][-1, i])
+                    if i < unit.funcs[n].shape[1]: name = unit.funcs[n][-1, i]
                     continue
-                if i < self.funcs[n].shape[1]: names.append(self.funcs[n][-1, i])
-                new_unit.funcs[n][0, i], new_unit.funcs[n][1, i], new_unit.funcs[n][2, i] = utils.gen_func(random.choice(names))
+                if i < self.funcs[n].shape[1] and not name: name = self.funcs[n][-1, i]
+                new_unit.funcs[n][0, i], new_unit.funcs[n][1, i], new_unit.funcs[n][2, i] = utils.gen_func(random.choice([name]))
         new_unit.name = unit.name + "jr"
         return new_unit
 

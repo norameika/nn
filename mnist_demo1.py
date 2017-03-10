@@ -51,12 +51,13 @@ def mnist(fp):
         res = sorted(res, key=lambda x: os.path.getmtime("./pickle/%s" % x), reverse=1)[0]
         return "./pickle/%s" % res
 
-    u = myunit(784, 200, 70, 10)
+    u = myunit(784, 200, 10)
     u.activation_temp = 0.00000001
     u.initialization("gaussian", 0, u.activation_temp)
     u.name = "capibara"
     u_dad = myunit(1, 1, 1)
     u_dad.clone(get_pickle("capibara"))
+    u_dad.describe()
     u = u.reproduce(u_dad, u)
     u.alpha = 0.00001
     u.beta = 0.9
@@ -64,8 +65,8 @@ def mnist(fp):
     # u.cost_func = functions.softmax
     # u.set_activation_func([functions.relu])
 
-    sindex = random.randint(0, 20000)
-    pat = pat_train(fp, sindex, 40000)
+    sindex = random.randint(0, 30000)
+    pat = pat_train(fp, 0, 40000)
     print("%s start training for %s x %s datasets from %s" % (u.name, pat[0][0].shape, len(pat), sindex))
     u.describe()
     an = utils.animator()
