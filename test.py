@@ -34,11 +34,9 @@ def check_gen_id(n):
 
 def anonymous():
     a = np.array([[True, True, True], [True, True, True]])
-    b = np.array([[False, False,], [False, False]])
-    print(utils.gen_mask(10, 2))
-    print(utils.merge_matrix_mask(a,  b, a.shape))
-    pass
-
+    f = lambda x: ~x
+    b = np.array([[f, f, f], [f, f, f]])
+    # print(np.matmul(a, b))
 if __name__ == '__main__':
     # check_get_latest()
     # check_clone("./pickle/gen0_score0p4989_2017_0303_140511")

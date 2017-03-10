@@ -59,14 +59,14 @@ def mnist(fp):
     u_dad.clone(get_pickle("capibara"))
     u_dad.describe()
     u = u.reproduce(u_dad, u)
-    u.alpha = 0.00001
+    u.alpha = 0.0005
     u.beta = 0.9
     u.gamma = 0.9
     # u.cost_func = functions.softmax
     # u.set_activation_func([functions.relu])
 
     sindex = random.randint(0, 30000)
-    pat = pat_train(fp, 0, 40000)
+    pat = pat_train(fp, 0, 4000)
     print("%s start training for %s x %s datasets from %s" % (u.name, pat[0][0].shape, len(pat), sindex))
     u.describe()
     an = utils.animator()
