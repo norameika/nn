@@ -43,35 +43,6 @@ def pat_eval(fp):
 
 
 def mnist(fp):
-    # create a network with two input, two hidden, and one output nodes
-    def add_newer(gen):
-        u = myunit(784, 100, 10)
-        u.initialization("gaussian", 0, 0.001)
-        u.alpha = 0.0001
-        u.beta = 0.9
-        u.gamma = 0.9
-
-        # bkm for sqerr
-        # u.initialization("gaussian", 0, 0.001)
-        # u.alpha = 0.0001
-        # u.beta = 0.9
-        # u.gamma = 0.9
-
-        u.name = "cat_s%s_%s" % (gen, utils.gen_id(2))
-        return u
-
-    def add_child(g):
-        res = list()
-        for u0, u1 in itertools.combinations(g, 2):
-            if np.random.normal(0, 1) <= 0:
-                n_layers_new = [max(i, j) for i, j in zip(u0.n_layers, u1.n_layers)]
-            else:
-                n_layers_new = [min(i, j) for i, j in zip(u0.n_layers, u1.n_layers)]
-            n_layers_new = (np.array(n_layers_new) - np.array([1, 0, 0, 0, 0])).tolist()
-            child = myunit(*n_layers_new)
-            child.name = "dog_s%s_%s" % (gen, u0.name.split("_")[-1]+u1.name.split("_")[-1])
-            res.append(u0.reproduce(u1, child))
-        return res
 
     def get_pickle(name):
         res = list()
@@ -80,62 +51,35 @@ def mnist(fp):
         res = sorted(res, key=lambda x: os.path.getmtime("./pickle/%s" % x), reverse=1)[0]
         return "./pickle/%s" % res
 
-
-    group = list()
-    survier = 3
-    u = myunit(784, 1000, 500, 10)
-    u.initialization("gaussian", 0, 0.0001)
+    u = myunit(784, 200, 70, 10)
+    u.activation_temp = 0.00000001
+    u.initialization("gaussian", 0, u.activation_temp)
+    u.name = "capibara"
     u_dad = myunit(1, 1, 1)
-    u_dad.clone(get_pickle("xk"))
+    u_dad.clone(get_pickle("capibara"))
     u = u.reproduce(u_dad, u)
     u.alpha = 0.00001
     u.beta = 0.9
     u.gamma = 0.9
-    # # u.clone(get_pickle("xk"))
-    # u.alpha = 0.00001
+    # u.cost_func = functions.softmax
+    # u.set_activation_func([functions.relu])
 
-    sindex = random.randint(0, 10000)
-    pat = pat_train(fp, 0, 40000)
+    sindex = random.randint(0, 20000)
+    pat = pat_train(fp, sindex, 40000)
     print("%s start training for %s x %s datasets from %s" % (u.name, pat[0][0].shape, len(pat), sindex))
     u.describe()
     an = utils.animator()
     an.arrange_for_animation(u.train(pat, u.evaluate, (pat_eval(fp), 1), epoch=50, interval=1))
     an.animation()
-    # for _ in u.train(pat, epoch=20, interval=1): pass
-    u.evaluate(pat_eval(fp), save=1)
-    group = sorted(group, key=lambda x: x.score, reverse=1)
-    print("genration%s, " % 0, ", ".join(["%-.2f" % x.score for x in group]))
-
+    u.evaluate(pat_eval(fp), 1)
     exit()
 
-    # """pickking"""
-    # group = group[:2]
-    # for u in group:
-    #     sindex = random.randint(0, 3500)
-    #     pat = pat_train(fp, sindex, 35000)
-    #     print("%s start training for %s x %s datasets from %s" % (u.name, pat[0][0].shape, len(pat), sindex))
-    #     u.describe()
-    #     for _ in u.train(pat, epoch=50, interval=1): pass
-    #     u.evaluate(pat_eval(fp), save=1)
-
-    group[:survier]
-
-    """ecocsyctem"""
-    for gen in range(1, 10):
-        sindex = random.randint(0, 3500)
-        pat = pat_train(fp, sindex, 35000)
-        group = group[:survier-1]
-        # group.append(add_newer(gen))
-        group += add_child(group)
-        for u in group:
-            print("%s start training for %s x %s datasets from %s" % (u.name, pat[0][0].shape, len(pat), sindex))
-            u.describe()
-            for _ in u.train(pat, epoch=25, interval=1): pass
-            u.evaluate(pat_eval(fp), save=1)
-
-        group = sorted(group, key=lambda x: x.score, reverse=1)
-        print("genration%s, " % gen, ", ".join(["%-.2f" % x.score for x in group]))
-        group[:survier]
+    #bkm for 748 * 10
+    # u.activation_temp = 0.0001
+    # u.initialization("gaussian", 0, u.activation_temp)
+    # u.alpha = 0.00001
+    # u.beta = 0.9
+    # u.gamma = 0.9
 
 
 if __name__ == '__main__':

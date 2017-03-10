@@ -33,8 +33,10 @@ def check_gen_id(n):
 
 
 def anonymous():
-    a = np.array([1,2,3])
-    print(functions.f_softmax(a))
+    a = np.array([[True, True, True], [True, True, True]])
+    b = np.array([[False, False,], [False, False]])
+    print(utils.gen_mask(10, 2))
+    print(utils.merge_matrix_mask(a,  b, a.shape))
     pass
 
 if __name__ == '__main__':

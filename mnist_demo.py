@@ -39,35 +39,6 @@ def pat_eval(fp):
     return res
 
 
-def mnist(fp):
-    # create a network with two input, two hidden, and one output nodes
-    def add_newer(gen):
-        # layer0 = np.random.randint(200, 600)
-        # layer1 = np.random.randint(12, layer0)
-        # layer2 = np.random.randint(11, layer1)
-        # layer3 = np.random.randint(10, layer2)
-        u = myunit(784, 80, 10)
-        u.initialization("gaussian", -0.001, 0.001)
-        u.alpha = 0.001
-        u.beta = 0.9
-        u.gamma = 0.9
-        # u.cost_func = functions.square_error
-        u.name = "panda_s%s_%s" % (gen, utils.gen_id(2))
-        return u
-
-    def add_child(g):
-        res = list()
-        for u0, u1 in itertools.combinations(g, 2):
-            if np.random.normal(0, 1) <= 0:
-                n_layers_new = [max(i, j) for i, j in zip(u0.n_layers, u1.n_layers)]
-            else:
-                n_layers_new = [min(i, j) for i, j in zip(u0.n_layers, u1.n_layers)]
-            n_layers_new = (np.array(n_layers_new) - np.array([1, 0, 0])).tolist()
-            child = myunit(*n_layers_new)
-            child.name = "panda_s%s_%s" % (gen, u0.name.split("_")[-1]+u1.name.split("_")[-1])
-            res.append(u0.reproduce(u1, child))
-        return res
-
     group = list()
     survier = 2
 

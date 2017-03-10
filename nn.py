@@ -96,7 +96,7 @@ class unit(object):
             if n != 0: error = np.dot(self.weights[-n].T, delta)
             delta = np.array([f(i) for f, i in zip(self.funcs[-n-1][1], self.signals[-n-1])]) * error
             self.rs[-n-1] = self.beta * self.rs[-n-1] + (1 - self.beta) * (delta * delta).mean()
-            self.weights[-n-1] += self.weights_mask[-n-1] * self.alpha * np.array([i * self.signals[-n-2] for i in delta / np.sqrt(self.rs[-n-1] + 1E-3)]) + self.gamma * (self.weights[-n-1] - self.weights_buff[-n-1])
+            self.weights[-n-1] += self.weights_mask[-n-1] * self.alpha * np.array([i * self.signals[-n-2] for i in delta / np.sqrt(self.rs[-n-1] + 1E-4)]) + self.gamma * (self.weights[-n-1] - self.weights_buff[-n-1])
         self.weights_buff = buff
 
         error_in = np.dot(self.weights[0].T, delta)
