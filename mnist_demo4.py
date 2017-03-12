@@ -24,7 +24,8 @@ class myunit(nn.unit):
 def pat_train(fp, n, m):
     try:
         with open("./pickle/pat_train", mode='rb') as f:
-            return pickle.load(f)
+            d = pickle.load(f)
+            return d[n:n + m]
     except:
         pass
     mean, sig = 33.372029299363057, 78.634459506389177
@@ -48,14 +49,7 @@ def pat_eval(fp):
     return res
 
 
-
-
-
-
-
-
 def mnist(fp):
-
     def get_pickle(name):
         res = list()
         for f in os.listdir("./pickle"):
@@ -63,34 +57,20 @@ def mnist(fp):
         res = sorted(res, key=lambda x: os.path.getmtime("./pickle/%s" % x), reverse=1)[0]
         return "./pickle/%s" % res
 
-    u = myunit(784, 500, 500, 10)
-    u.activation_temp = 0.0001
-    u.initialization("gaussian", 0, u.activation_temp)
-    u.name = "capibara"
-    # u_dad = myunit(1, 1, 1)
-    # u_dad.delta = 0.1
-    # u_dad.clone(get_pickle("capibara"))
-    # u_dad.describe()
-    # u = u.reproduce(u_dad, u)
-    # u.reset_mask()
-    u.alpha = 0.0033
-    u.beta = 0.9
-    u.gamma = 0.9
-    # u.cost_func = functions.softmax
-    # u.set_activation_func([functions.relu])
-
-    sindex = random.randint(0, 30000)
-    pat = pat_train(fp, 0, 40000)
-    # with open('./pickle/pat_train', mode='wb') as f:
-    #         pickle.dump(pat, f)
-    # exit()
-    print("%s start training for %s x %s datasets from %s" % (u.name, pat[0][0].shape, len(pat), sindex))
-    u.describe()
-    an = utils.animator()
-    an.arrange_for_animation(u.train(pat, u.evaluate, (pat_eval(fp), 0), epoch=50, interval=1))
-    an.animation()
-    u.evaluate(pat_eval(fp), 1)
-    exit()
+    while 1:
+        u = myunit(784, 1000, 10)
+        # u.activation_temp = 0.0022777078090977583
+        # u.alpha = 6.152480735753703e-05
+        # u.beta = 0.8693087894881881
+        # u.gamma = 0.8111022047365893
+        # u.name = "capibara_%s" % utils.gen_id(2)
+        u.delta = 0.33
+        u.clone(get_pickle("capibara"))
+        sindex = random.randint(0, 30000)
+        pat = pat_train(fp, 0, 40000)
+        print("%s start training for %s x %s datasets from %s" % (u.name, pat[0][0].shape, len(pat), sindex))
+        u.describe()
+        for _ in u.train(pat, u.evaluate, (pat_eval(fp), 1), epoch=1, interval=1): pass
 
     #bkm for 748 * 10
     # u.activation_temp = 0.0001

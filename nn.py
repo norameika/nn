@@ -11,7 +11,6 @@ import time
 import pandas as pd
 import copy
 
-
 sns.set(style="darkgrid", palette="muted", color_codes=True)
 
 
@@ -37,11 +36,14 @@ class unit(object):
             self.signals.append(np.array([0.] * n))
 
         # hyper parameters
-        self.alpha = 0. # alpha: learning rate, placehoder
+        self.alpha = 0.01 # alpha: learning rate, placehoder
         self.beta = 0.9
         self.gamma = 0.9
         self.activation_temp = 0.01
-        self.initialization("gaussian", 0, self.activation_temp)
+        self.delta = 0.
+        self.epsilon = 0.3
+        self.zeta = 0.
+        self.eta = 0.
 
         self.rs = list()
         for n in self.n_layers[1:]:
@@ -51,10 +53,10 @@ class unit(object):
         self.const = 1
         self.generation = 0
         self.score = 0
+
         # default settnig
         self.funcs = list()
         self.set_activation_func([functions.tanh, functions.relu])
-        # self.initialization("gaussian", 0, 0.001)
         self.cost_func = functions.square_error
 
     def set_activation_func(self, funcs):
@@ -66,11 +68,26 @@ class unit(object):
         if how == "gaussian":
             mean, sig = args
             for cnt, w in enumerate(self.weights):
-                self.weights[cnt] = np.array([abs(np.random.normal(mean, sig, w.shape[1])) for i in range(w.shape[0])])
+                self.weights[cnt] = np.array([np.random.normal(mean, sig, w.shape[1]) for i in range(w.shape[0])])
         elif how == "random":
             vmin, vmax = args
             for cnt, w in enumerate(self.weights):
                 self.weights[cnt] = np.array([[utils.rand(-vmin, vmax) for i in range(w.shape[1])] for j in range(w.shape[0])])
+
+    def aneal(self, how, *args):
+        if how == "gaussian":
+            mean, sig = args
+            for cnt, w in enumerate(self.weights):
+                self.weights[cnt] += self.weights_mask[cnt] * np.array([np.random.normal(mean, sig, w.shape[1]) for i in range(w.shape[0])])
+        elif how == "random":
+            vmin, vmax = args
+            for cnt, w in enumerate(self.weights):
+                self.weights[cnt] += self.weights_mask[cnt] * np.array([[utils.rand(-vmin, vmax) for i in range(w.shape[1])] for j in range(w.shape[0])])
+
+    def sleep(self):
+        means = np.array([w.mean() for w in self.weights])
+        sigs = np.array([w.std() for w in self.weights])
+        self.weights = [np.logical_or(w < mean - sig * self.zeta, w > mean + sig * self.zeta) * w for w, mean, sig in zip(self.weights, means, sigs)]
 
     def forward_propagation(self, inputs):
         inputs = np.append(inputs, [self.const])
@@ -85,7 +102,6 @@ class unit(object):
         return self.cost_func.func(self.signals[-1])
 
     def back_propagation(self, targets, epoch):
-        """momentan SDG"""
         if len(targets) != self.n_layers[-1]:
             raise ValueError("wrong number of target values")
         error = self.cost_func.derv(self.signals[-1], targets)
@@ -95,7 +111,7 @@ class unit(object):
             if n != 0: error = np.dot(self.weights[-n].T, delta)
             delta = np.array([f(i) for f, i in zip(self.funcs[-n-1][1], self.signals[-n-1])]) * error
             self.rs[-n-1] = self.beta * self.rs[-n-1] + (1 - self.beta) * (delta * delta).mean()
-            self.weights[-n-1] += self.weights_mask[-n-1] * (self.alpha * np.array([i * self.signals[-n-2] for i in delta / np.sqrt(self.rs[-n-1] + 1E-4)]) + self.gamma * (self.weights[-n-1] - self.weights_buff[-n-1]))
+            self.weights[-n-1] += self.weights_mask[-n-1] * (self.alpha / (1 + self.epsilon * epoch + (n+1)**-2) * np.array([i * self.signals[-n-2] for i in delta / np.sqrt(self.rs[-n-1] + 1E-4)]) + self.gamma * (self.weights[-n-1] - self.weights_buff[-n-1]))
         self.weights_buff = buff
 
         error_in = np.dot(self.weights[0].T, delta)
@@ -106,16 +122,13 @@ class unit(object):
         cnt, corrct = 0, 0
         for p in patterns:
             ans = self.forward_propagation(p[0])
-            # print(ans, sum(ans))
             corrct += self.evaluator(ans, p[1])
             cnt += 1
         print("%d / %d, raito%s" % (corrct, cnt, round(corrct / float(cnt) * 100, 2)))
-        self.score = max(self.score, round(corrct / float(cnt) * 100, 2))
-        self.generation += 1
+        self.score = round(corrct / float(cnt) * 100, 2)
         if save:
             self.save()
         return corrct / float(cnt)
-        # self.describe()
 
     def evaluator(self, res, tar):
         return 0
@@ -135,12 +148,16 @@ class unit(object):
             self.name = ob.name
             self.weights = ob.weights
             self.weights_buff = ob.weights_buff
-            self.weights_mask = [~utils.gen_mask(*w.shape) for w in ob.weights_mask]
+            self.weights_mask = [~utils.gen_mask(*w.shape) + self.delta for w in ob.weights_mask]
             self.funcs = ob.funcs
             self.rs = ob.rs
             self.generation = ob.generation + 1
             self.score = ob.score
             self.alpha, self.beta, self.gamma = ob.alpha, ob.beta, ob.gamma
+            try:
+                self.delta, self.epsilon, self.zeta, self.eta = ob.delta, ob.epsilon, ob.zeta, ob.eta
+            except:
+                pass
             print("copied % s" % f)
 
     def reset_mask(self):
@@ -176,7 +193,7 @@ class unit(object):
 
     def describe(self):
         print("\tsize ->", "-".join(map(str, self.n_layers)))
-        print("\talpha, beta, gamma, temp -> %-.5f, %-.2f, %-.2f, %-.5f" % (self.alpha, self.beta, self.gamma, self.activation_temp))
+        print("\talpha, beta, gamma, zeta, eta, temp -> %-.5f, %-.2f, %-.2f, %-.2f, %-.2f, %-.5f" % (self.alpha, self.beta, self.gamma, self.zeta, self.eta, self.activation_temp))
         print("\tgeneration ->", self.generation)
 
     def train(self, patterns, eval_fanc=0, arg=0, epoch=10000, how="online, Momentumsgd", interval=1000, save=0):
@@ -184,14 +201,33 @@ class unit(object):
             times = np.array([])
             for i in range(epoch):
                 error = 0.0
+                errors = dict()
                 s = time.time()
                 random.shuffle(patterns[::(-1) ** epoch])
-                for p in patterns:
+                for cnt, p in enumerate(patterns):
                     inputs = p[0]
                     targets = p[1]
                     self.forward_propagation(inputs)
                     error_this, _ = self.back_propagation(targets, epoch)
                     error = error + error_this
+                    errors.update({error_this: p})
+                    if cnt % 1000 == 0 and cnt != 0:
+                        print(cnt, np.array(list(errors.keys())).std(), np.array(list(errors.keys())).mean())
+                        if np.array(list(errors.keys())).std() < 0.0001:
+                            print("saturated")
+                            return 0
+                        if np.array(list(errors.keys())).mean() > 10:
+                            print("overflow")
+                            return 0
+                        if error_this != error_this:
+                            print("overflow")
+                            return 0
+                (_, patterns_fukusyu) = zip(*sorted(errors.items(), key=lambda x: x[0], reverse=1))
+                for cnt, p in enumerate(patterns_fukusyu[:len(patterns) // 3]):
+                    inputs = p[0]
+                    targets = p[1]
+                    self.forward_propagation(inputs)
+                    self.back_propagation(targets, epoch)
                 error /= len(patterns)
                 times = np.append(times, time.time() - s)
                 if i % interval == 0:
@@ -201,8 +237,15 @@ class unit(object):
                     else:
                         yield i, error
                 if error != error: break
+                self.generation += 1
+
             if save:
                 self.save()
+            f = open("log.txt", "a")
+            f.write("%s " % self.name + " ".join(map(str, self.n_layers)))
+            f.write(" %s %s %s %s %s %s %s %s " % (self.alpha, self.beta, self.gamma, self.delta, self.epsilon, self.zeta, self.eta, self.activation_temp))
+            f.write("%s %s %s" % (self.generation, len(patterns), self.score))
+            f.write("\n")
 
         elif how == "batch":
             pass
