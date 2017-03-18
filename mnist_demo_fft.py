@@ -41,7 +41,7 @@ def pat_train(fp, n, m):
         inputs_fft = inputs_fft.reshape(784, 1)
         inputs_fft = np.array([(i - mean_fft) / sig_fft for i in inputs_fft])
         inputs = np.array([(i - mean) / sig for i in l[1:]])
-        res.append([inputs_fft, np.array([1 if i == l[0] else 0 for i in range(n_out)])])
+        res.append([np.append(inputs, inputs_fft), np.array([1 if i == l[0] else 0 for i in range(n_out)])])
     return res
 
 
@@ -72,7 +72,7 @@ def get_pickle(name):
 
 def mnist_cherrypic(fp):
     while 1:
-        u = myunit(784*2, 500, 10)
+        u = myunit(784*2, 777, 777, 10)
         u.weights_mask[0] = utils.gen_mask_fft(*u.weights_mask[0].shape)
         u.activation_temp = 10 ** (-3 - np.random.normal(0, 1))
         u.alpha = 10 ** (-3 - np.random.normal(0, 1))
@@ -96,18 +96,19 @@ def mnist(fp):
         return "./pickle/%s" % res
 
     for i in range(100):
-        u = myunit(784*2, 2000, 10)
+        u = myunit(784*2, 000, 10)
         # u.activation_temp = 0.005239828201117102
         # u.alpha = 3.6349203390986874e-05
         # u.beta = 0.7286449556280377
         # u.gamma = 0.7327171199235663
         # u.name = "serval_%s" % utils.gen_id(2)
         # u.initialization("gaussian", 0, u.activation_temp)
+        u.delta = 0.33
         u.clone(get_pickle("usagifft_fo"))
         # u.alpha = 5.329952064184424e-05
         sindex = random.randint(0, 30000)
-        sindex = 0
-        pat = pat_train(fp, 0, 40000)
+        # sindex = 0
+        pat = pat_train(fp, 0, 10000)
         print("%s start training for %s x %s datasets from %s" % (u.name, pat[0][0].shape, len(pat), sindex))
         u.describe()
         for _ in u.train(pat, u.evaluate, (pat_eval(fp), 1), epoch=3, interval=1): pass
@@ -121,5 +122,5 @@ def mnist(fp):
 
 
 if __name__ == '__main__':
-    mnist("./mnist/train.csv")
-    # mnist_cherrypic("./mnist/train.csv")
+    # mnist("./mnist/train.csv")
+    mnist_cherrypic("./mnist/train.csv")

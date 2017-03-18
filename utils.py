@@ -36,6 +36,7 @@ def gen_ematrix(n, inp=0):
         matrix.append([0 if k != i else 1 for k in range(n + inp)])
     return np.array(matrix)
 
+
 def gen_mask_fft(n, m):
     arr = gen_mask(n, m)
     for i in range(n):

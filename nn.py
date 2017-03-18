@@ -255,7 +255,7 @@ class unit(object):
                     self.sleep_count -=1
                     inputs = p[0]
                     targets = p[1]
-                    self.forward_propagation_(inputs)
+                    self.forward_propagation(inputs)
                     error_this, _ = self.back_propagation(targets, epoch)
                     error.append(error_this)
                     errors.update({error_this: p})
@@ -269,7 +269,7 @@ class unit(object):
                 for cnt, p in enumerate(patterns_fukusyu[:len(patterns) // 3]):
                     inputs = p[0]
                     targets = p[1]
-                    self.forward_propagation_(inputs)
+                    self.forward_propagation(inputs)
                     error_this, _ = self.back_propagation(targets, epoch)
                     errors_fukusyu.update({error_this: p})
                     if cnt % 1000 == 0 and cnt != 0:
