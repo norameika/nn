@@ -10,6 +10,7 @@ import os
 import time
 import pandas as pd
 import copy
+import scipy
 
 sns.set(style="darkgrid", palette="muted", color_codes=True)
 
@@ -23,20 +24,18 @@ class unit(object):
 
         self.weights = list()
         self.weights_buff = list()
-        self.weights_mask = list()
         for n, n_next in zip(self.n_layers, self.n_layers[1:]):
             mtrx = utils.gen_matrix(n_next, n)
             mask = utils.gen_mask(n_next, n)
             self.weights.append(mtrx)
             self.weights_buff.append(mtrx)
-            self.weights_mask.append(mask)
 
         self.signals = list()
         for n in range(len(self.n_layers)):
             self.signals.append(np.array([0.] * n))
 
         # hyper parameters
-        self.alpha = 0.01 # alpha: learning rate, placehoder
+        self.alpha = 0.01  # alpha: learning rate, placehoder
         self.beta = 0.9
         self.gamma = 0.9
         self.activation_temp = 0.01
@@ -74,22 +73,7 @@ class unit(object):
             for cnt, w in enumerate(self.weights):
                 self.weights[cnt] = np.array([[utils.rand(-vmin, vmax) for i in range(w.shape[1])] for j in range(w.shape[0])])
 
-    def aneal(self, how, *args):
-        if how == "gaussian":
-            mean, sig = args
-            for cnt, w in enumerate(self.weights):
-                self.weights[cnt] += self.weights_mask[cnt] * np.array([np.random.normal(mean, sig, w.shape[1]) for i in range(w.shape[0])])
-        elif how == "random":
-            vmin, vmax = args
-            for cnt, w in enumerate(self.weights):
-                self.weights[cnt] += self.weights_mask[cnt] * np.array([[utils.rand(-vmin, vmax) for i in range(w.shape[1])] for j in range(w.shape[0])])
-
-    def sleep(self):
-        means = np.array([w.mean() for w in self.weights])
-        sigs = np.array([w.std() for w in self.weights])
-        self.weights = [np.logical_or(w < mean - sig * self.zeta, w > mean + sig * self.zeta) * w for w, mean, sig in zip(self.weights, means, sigs)]
-
-    def forward_propagation(self, inputs):
+    def forward_propagation(self, inputs, dropout=0):
         inputs = np.append(inputs, [self.const])
         if len(inputs) != self.n_layers[0]:
             raise ValueError("wrong number of inputs")
@@ -101,9 +85,12 @@ class unit(object):
 
         return self.cost_func.func(self.signals[-1])
 
+
     def back_propagation(self, targets, epoch):
+        """momentan SDG"""
         if len(targets) != self.n_layers[-1]:
             raise ValueError("wrong number of target values")
+
         error = self.cost_func.derv(self.signals[-1], targets)
         delta = 0
         buff = self.weights
@@ -111,7 +98,7 @@ class unit(object):
             if n != 0: error = np.dot(self.weights[-n].T, delta)
             delta = np.array([f(i) for f, i in zip(self.funcs[-n-1][1], self.signals[-n-1])]) * error
             self.rs[-n-1] = self.beta * self.rs[-n-1] + (1 - self.beta) * (delta * delta).mean()
-            self.weights[-n-1] += self.weights_mask[-n-1] * (self.alpha / (1 + self.epsilon * epoch + (n+1)**-2) * np.array([i * self.signals[-n-2] for i in delta / np.sqrt(self.rs[-n-1] + 1E-4)]) + self.gamma * (self.weights[-n-1] - self.weights_buff[-n-1]))
+            self.weights[-n-1] += self.weights_mask[-n-1] * (self.alpha / (1 + self.epsilon * epoch + (1+n)**-1) * np.array([i * self.signals[-n-2] for i in delta / np.sqrt(self.rs[-n-1] + 1E-4)]) + self.gamma * (self.weights[-n-1] - self.weights_buff[-n-1]))
         self.weights_buff = buff
 
         error_in = np.dot(self.weights[0].T, delta)
@@ -121,7 +108,7 @@ class unit(object):
     def evaluate(self, patterns, save=0):
         cnt, corrct = 0, 0
         for p in patterns:
-            ans = self.forward_propagation(p[0])
+            ans = self.forward_propagation(p[0], dropout=0)
             corrct += self.evaluator(ans, p[1])
             cnt += 1
         print("%d / %d, raito%s" % (corrct, cnt, round(corrct / float(cnt) * 100, 2)))
@@ -179,6 +166,27 @@ class unit(object):
         new_unit.name = unit.name + "jr"
         return new_unit
 
+    def check_progress(self, cnt, error, th=1e-7):
+        x = np.array(list(range(len(error))))
+        y = np.array(list(error))
+        a, _, _, _, _ = scipy.stats.linregress(x, y)
+        print("cnt, std, mean, slope -> %s, %s, %s, %s " % (cnt, np.array(list(error)).std(), np.array(list(error)).mean(), a), end="")
+        if np.array(list(error)).std() < 0.0001:
+            print("saturated")
+            return StopIteration
+        if np.array(list(error)).mean() > 10:
+            print("overflow by mean")
+            return StopIteration
+        if list(error)[-1] != list(error)[-1]:
+            print("overflow by nan")
+            return StopIteration
+        # if a > th and self.sleep_count <= 0:
+        #     print("ovverflow trend..go into sleep", end="")
+        #     # self.alpha *= 0.1
+        #     # self.alpha = max(1e-7, self.alpha)
+        #     self.sleep_count = 100
+        print("ok")
+
     def get_latest(self):
         res = None
         for f in os.listdir("./pickle"):
@@ -200,35 +208,37 @@ class unit(object):
         if how == "online, Momentumsgd":
             times = np.array([])
             for i in range(epoch):
-                error = 0.0
+                error = list()
+
+                # train
                 errors = dict()
                 s = time.time()
-                random.shuffle(patterns[::(-1) ** epoch])
+                random.shuffle(patterns)
                 for cnt, p in enumerate(patterns):
+                    self.sleep_count -=1
                     inputs = p[0]
                     targets = p[1]
-                    self.forward_propagation(inputs)
+                    self.forward_propagation_(inputs)
                     error_this, _ = self.back_propagation(targets, epoch)
-                    error = error + error_this
+                    error.append(error_this)
                     errors.update({error_this: p})
                     if cnt % 1000 == 0 and cnt != 0:
-                        print(cnt, np.array(list(errors.keys())).std(), np.array(list(errors.keys())).mean())
-                        if np.array(list(errors.keys())).std() < 0.0001:
-                            print("saturated")
-                            return 0
-                        if np.array(list(errors.keys())).mean() > 10:
-                            print("overflow")
-                            return 0
-                        if error_this != error_this:
-                            print("overflow")
-                            return 0
+                        if self.check_progress(cnt, error, 1e-6) == StopIteration:
+                            raise StopIteration
+
+                # fukusyu
                 (_, patterns_fukusyu) = zip(*sorted(errors.items(), key=lambda x: x[0], reverse=1))
+                errors_fukusyu = dict()
                 for cnt, p in enumerate(patterns_fukusyu[:len(patterns) // 3]):
                     inputs = p[0]
                     targets = p[1]
-                    self.forward_propagation(inputs)
-                    self.back_propagation(targets, epoch)
-                error /= len(patterns)
+                    self.forward_propagation_(inputs)
+                    error_this, _ = self.back_propagation(targets, epoch)
+                    errors_fukusyu.update({error_this: p})
+                    if cnt % 1000 == 0 and cnt != 0:
+                        if self.check_progress(cnt, errors_fukusyu, 1e-4) == StopIteration:
+                            raise StopIteration
+                error = sum(error) / len(patterns)
                 times = np.append(times, time.time() - s)
                 if i % interval == 0:
                     print("epoch%s, error%-.5f, sec/epoc %-.3fsec, time remains %-.1fsec" % (i, error, time.time() - s, times.mean() * (epoch - i)))
@@ -236,7 +246,6 @@ class unit(object):
                         yield i, error, eval_fanc(*arg)
                     else:
                         yield i, error
-                if error != error: break
                 self.generation += 1
 
             if save:

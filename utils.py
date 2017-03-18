@@ -37,6 +37,17 @@ def gen_ematrix(n, inp=0):
     return np.array(matrix)
 
 
+def gen_mask_fft(n, m):
+    arr = gen_mask(n, m)
+    for i in range(n):
+        for j in range(m):
+            if (int(i >= n//2 ) - 0.5) * (int(j >= m//2 ) - 0.5) >= 0:
+                arr[i, j] = 1
+            else:
+                arr[i, j] = 0
+    return arr
+
+
 def gen_func(name):
     if name == "tanh":
         return functions.tanh.func, functions.tanh.derv, functions.tanh.name
@@ -82,9 +93,14 @@ def merge_matrix_mask(a, b, shape):
     return res
 
 
-def dropout(signal):
-    drop = np.vectorize(lambda x: np.random.choice([0, x], 1, p=np.array([0.4, 0.6])))
-    return 1. / 0.6 * drop(signal)
+def dropout_input(signal):
+    drop = np.array([i < 1.5 and i > -1.5 for i in np.random.normal(0, 1, len(signal))]).astype(np.int16)
+    return 1. / 0.87 * drop * signal
+
+
+def dropout_output(weights, signal):
+    drop = np.array([i < 1 and i > -1 for i in np.random.normal(0, 1, len(signal))]).astype(np.int16)
+    return 1. / 0.667 * np.dot(weights * np.array([drop for i in range(weights.shape[0])]), signal)
 
 
 def amp(inputs):

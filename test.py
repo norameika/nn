@@ -33,9 +33,10 @@ def check_gen_id(n):
 
 
 def anonymous():
-    a = np.array([[True, True, True], [True, True, True]])
-    f = lambda x: ~x
-    b = np.array([[f, f, f], [f, f, f]])
+    a = [1, 2, 4, 6]
+    random.shuffle(a)
+    print(a)
+    print(utils.gen_mask_fft(10, 8))
     # print(np.matmul(a, b))
 if __name__ == '__main__':
     # check_get_latest()
