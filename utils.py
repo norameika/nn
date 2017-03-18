@@ -36,6 +36,16 @@ def gen_ematrix(n, inp=0):
         matrix.append([0 if k != i else 1 for k in range(n + inp)])
     return np.array(matrix)
 
+def gen_mask_fft(n, m):
+    arr = gen_mask(n, m)
+    for i in range(n):
+        for j in range(m):
+            if (int(i >= n//2 ) - 0.5) * (int(j >= m//2 ) - 0.5) >= 0:
+                arr[i, j] = 1
+            else:
+                arr[i, j] = 0
+    return arr
+
 
 def gen_func(name):
     if name == "tanh":
@@ -82,13 +92,38 @@ def merge_matrix_mask(a, b, shape):
     return res
 
 
-def dropout(signal):
-    drop = np.vectorize(lambda x: np.random.choice([0, x], 1, p=np.array([0.4, 0.6])))
-    return 1. / 0.6 * drop(signal)
+def dropout_input(signal):
+    drop = np.array([i < 1.5 and i > -1.5 for i in np.random.normal(0, 1, len(signal))]).astype(np.int16)
+    return 1. / 0.87 * drop * signal
+
+
+def dropout_output(weights, signal):
+    drop = np.array([i < 1 and i > -1 for i in np.random.normal(0, 1, len(signal))]).astype(np.int16)
+    return 1. / 0.667 * np.dot(weights * np.array([drop for i in range(weights.shape[0])]), signal)
 
 
 def amp(inputs):
     return functions.f_tanh(functions.f_tanh(functions.f_tanh(inputs)))
+
+
+def crop_image(img, xy, scale_factor):
+    '''Crop the image around the tuple xy
+
+    Inputs:
+    -------
+    img: Image opened with PIL.Image
+    xy: tuple with relative (x,y) position of the center of the cropped image
+        x and y shall be between 0 and 1
+    scale_factor: the ratio between the original image's size and the cropped image's size
+    '''
+    center = (img.size[0] * xy[0], img.size[1] * xy[1])
+    new_size = (img.size[0], img.size[1])
+    left = max (0, (int) (center[0] - new_size[0] / 2))
+    right = min (img.size[0], (int) (center[0] + new_size[0] / 2))
+    upper = max (0, (int) (center[1] - new_size[1] / 2))
+    lower = min (img.size[1], (int) (center[1] + new_size[1] / 2))
+    cropped_img = img.crop((left, upper, right, lower))
+    return cropped_img
 
 
 class animator(object):
