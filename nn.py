@@ -2,8 +2,8 @@
 import numpy as np
 import random
 import seaborn as sns
-import utils
-import functions
+from . import utils
+from . import functions
 import pickle
 import datetime
 import os
@@ -43,6 +43,7 @@ class unit(object):
         self.epsilon = 0.3
         self.zeta = 0.
         self.eta = 0.
+        self.comment = "no comment"
 
         self.rs = list()
         for n in self.n_layers[1:]:
@@ -52,6 +53,7 @@ class unit(object):
         self.const = 1
         self.generation = 0
         self.score = 0
+        self.sleep_count = 1000
 
         # default settnig
         self.funcs = list()
@@ -77,14 +79,11 @@ class unit(object):
         inputs = np.append(inputs, [self.const])
         if len(inputs) != self.n_layers[0]:
             raise ValueError("wrong number of inputs")
-
         # activate input node
         self.signals[0] = inputs
         for i in range(len(self.signals[1:])):
             self.signals[i + 1] = np.array([f(j) for f, j in zip(self.funcs[i][0], np.dot(self.weights[i], self.signals[i]))])
-
         return self.cost_func.func(self.signals[-1])
-
 
     def back_propagation(self, targets, epoch):
         """momentan SDG"""
@@ -98,7 +97,7 @@ class unit(object):
             if n != 0: error = np.dot(self.weights[-n].T, delta)
             delta = np.array([f(i) for f, i in zip(self.funcs[-n-1][1], self.signals[-n-1])]) * error
             self.rs[-n-1] = self.beta * self.rs[-n-1] + (1 - self.beta) * (delta * delta).mean()
-            self.weights[-n-1] += self.weights_mask[-n-1] * (self.alpha / (1 + self.epsilon * epoch + (1+n)**-1) * np.array([i * self.signals[-n-2] for i in delta / np.sqrt(self.rs[-n-1] + 1E-4)]) + self.gamma * (self.weights[-n-1] - self.weights_buff[-n-1]))
+            self.weights[-n-1] += (self.alpha / (1 + self.epsilon * epoch + (1+n)**-1) * np.array([i * self.signals[-n-2] for i in delta / np.sqrt(self.rs[-n-1] + 1E-4)]) + self.gamma * (self.weights[-n-1] - self.weights_buff[-n-1]))
         self.weights_buff = buff
 
         error_in = np.dot(self.weights[0].T, delta)
@@ -107,11 +106,16 @@ class unit(object):
 
     def evaluate(self, patterns, save=0):
         cnt, corrct = 0, 0
+        res = np.zeros(self.n_layers[-1] ** 2).reshape(self.n_layers[-1], self.n_layers[-1])
         for p in patterns:
             ans = self.forward_propagation(p[0], dropout=0)
             corrct += self.evaluator(ans, p[1])
+            res[list(p[1]).index(max(p[1])), list(ans).index(max(ans))] += 1
             cnt += 1
+        print("-"*100)
         print("%d / %d, raito%s" % (corrct, cnt, round(corrct / float(cnt) * 100, 2)))
+        print(pd.DataFrame(res, columns=["pred%s" % i for i in range(self.n_layers[-1])], index=["corr%s" % i for i in range(self.n_layers[-1])]))
+        print("-"*100)
         self.score = round(corrct / float(cnt) * 100, 2)
         if save:
             self.save()
@@ -135,7 +139,7 @@ class unit(object):
             self.name = ob.name
             self.weights = ob.weights
             self.weights_buff = ob.weights_buff
-            self.weights_mask = [~utils.gen_mask(*w.shape) + self.delta for w in ob.weights_mask]
+            # self.weights_mask = [~utils.gen_mask(*w.shape) + self.delta for w in ob.weights_mask]
             self.funcs = ob.funcs
             self.rs = ob.rs
             self.generation = ob.generation + 1
@@ -177,7 +181,7 @@ class unit(object):
         if np.array(list(error)).mean() > 10:
             print("overflow by mean")
             return StopIteration
-        if list(error)[-1] != list(error)[-1]:
+        if np.array(list(error)).std() != np.array(list(error)).std():
             print("overflow by nan")
             return StopIteration
         # if a > th and self.sleep_count <= 0:
@@ -218,7 +222,7 @@ class unit(object):
                     self.sleep_count -=1
                     inputs = p[0]
                     targets = p[1]
-                    self.forward_propagation_(inputs)
+                    self.forward_propagation(inputs)
                     error_this, _ = self.back_propagation(targets, epoch)
                     error.append(error_this)
                     errors.update({error_this: p})
@@ -232,7 +236,7 @@ class unit(object):
                 for cnt, p in enumerate(patterns_fukusyu[:len(patterns) // 3]):
                     inputs = p[0]
                     targets = p[1]
-                    self.forward_propagation_(inputs)
+                    self.forward_propagation(inputs)
                     error_this, _ = self.back_propagation(targets, epoch)
                     errors_fukusyu.update({error_this: p})
                     if cnt % 1000 == 0 and cnt != 0:
@@ -253,7 +257,8 @@ class unit(object):
             f = open("log.txt", "a")
             f.write("%s " % self.name + " ".join(map(str, self.n_layers)))
             f.write(" %s %s %s %s %s %s %s %s " % (self.alpha, self.beta, self.gamma, self.delta, self.epsilon, self.zeta, self.eta, self.activation_temp))
-            f.write("%s %s %s" % (self.generation, len(patterns), self.score))
+            f.write("%s %s %s " % (self.generation, len(patterns), self.score))
+            f.write(self.comment)
             f.write("\n")
 
         elif how == "batch":

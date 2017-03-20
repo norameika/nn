@@ -1,6 +1,6 @@
 import numpy as np
 import random
-import functions
+from . import functions
 from matplotlib import pylab as plt
 import matplotlib.animation as animation
 
