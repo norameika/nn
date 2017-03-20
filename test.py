@@ -31,6 +31,11 @@ def check_ematrix():
 def check_gen_id(n):
     print(utils.gen_id(n))
 
+def check_convolve():
+    u = nn.unit(1, 1, 1)
+    arr = np.array([1, 2, 3, 4, 10, 20, 30, 40, 1, 2, 3, 4, 10, 20, 30, 40,])
+    print(u.convolve(arr, masksize=1).mean())
+
 
 def anonymous():
     a = [1, 2, 4, 6]
@@ -43,7 +48,8 @@ if __name__ == '__main__':
     # check_clone("./pickle/gen0_score0p4989_2017_0303_140511")
     # check_nn_gen_delault_connection()
     # check_gen_id(2)
-    anonymous()
+    check_convolve()
+    # anonymous()
     # demo_singl_unit()
     # demo_linked()
     # check_ematrix()

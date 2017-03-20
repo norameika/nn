@@ -11,6 +11,8 @@ import time
 import pandas as pd
 import copy
 import scipy
+import itertools
+from scipy.ndimage.interpolation import shift
 
 sns.set(style="darkgrid", palette="muted", color_codes=True)
 
@@ -99,11 +101,10 @@ class unit(object):
             sigs = np.array([w.std() for w in self.weights])
             self.weights = [th(abs(w  - mean / 0.5 / sig)) * w for w, mean, sig in zip(self.weights, means, sigs)]
 
-    def forward_propagation(self, inputs, dropout=0):
+    def forward_propagation(self, inputs):
         inputs = np.append(inputs, [self.const])
         if len(inputs) != self.n_layers[0]:
             raise ValueError("wrong number of inputs")
-
         # activate input node
         self.signals[0] = inputs
         for i in range(len(self.signals[1:])):
@@ -135,7 +136,7 @@ class unit(object):
             if n != 0: error = np.dot(self.weights[-n].T, delta)
             delta = np.array([f(i) for f, i in zip(self.funcs[-n-1][1], self.signals[-n-1])]) * error
             self.rs[-n-1] = self.beta * self.rs[-n-1] + (1 - self.beta) * (delta * delta).mean()
-            self.weights[-n-1] += self.weights_mask[-n-1] * (self.alpha / (1 + self.epsilon * epoch + (1+n)**-1) * np.array([i * self.signals[-n-2] for i in delta / np.sqrt(self.rs[-n-1] + 1E-4)]) + self.gamma * (self.weights[-n-1] - self.weights_buff[-n-1]))
+            self.weights[-n-1] += (self.alpha / (1 + self.epsilon * epoch + (1+n)**-1) * np.array([i * self.signals[-n-2] for i in delta / np.sqrt(self.rs[-n-1] + 1E-4)]) + self.gamma * (self.weights[-n-1] - self.weights_buff[-n-1]))
         self.weights_buff = buff
 
         error_in = np.dot(self.weights[0].T, delta)
@@ -144,11 +145,16 @@ class unit(object):
 
     def evaluate(self, patterns, save=0):
         cnt, corrct = 0, 0
+        res = np.zeros(self.n_layers[-1] ** 2).reshape(self.n_layers[-1], self.n_layers[-1])
         for p in patterns:
-            ans = self.forward_propagation(p[0], dropout=0)
+            ans = self.forward_propagation(p[0])
             corrct += self.evaluator(ans, p[1])
+            res[list(p[1]).index(max(p[1])), list(ans).index(max(ans))] += 1
             cnt += 1
+        print("-"*100)
         print("%d / %d, raito%s" % (corrct, cnt, round(corrct / float(cnt) * 100, 2)))
+        print(pd.DataFrame(res, columns=["pred%s" % i for i in range(self.n_layers[-1])], index=["corr%s" % i for i in range(self.n_layers[-1])]))
+        print("-"*100)
         self.score = round(corrct / float(cnt) * 100, 2)
         if save:
             self.save()
@@ -217,11 +223,11 @@ class unit(object):
         if list(error)[-1] != list(error)[-1]:
             print("overflow by nan")
             return StopIteration
-        # if a > th and self.sleep_count <= 0:
-        #     print("ovverflow trend..go into sleep", end="")
-        #     # self.alpha *= 0.1
-        #     # self.alpha = max(1e-7, self.alpha)
-        #     self.sleep_count = 100
+        if a > th and self.sleep_count <= 0:
+            print("ovverflow trend..go into sleep", end="")
+            self.alpha *= 0.33
+            self.alpha = max(1e-7, self.alpha)
+            self.sleep_count = 100
         print("ok")
 
     def get_latest(self):
@@ -235,6 +241,22 @@ class unit(object):
                 res = f
         print("copied % s" % res)
         self.clone("./pickle/%s" % res)
+
+    def convolve(self, inputs, masksize=1):
+        size = int(np.sqrt(inputs.shape[0]))
+        arr = inputs.reshape(size, size)
+        res = np.zeros(size*size).reshape(size, size)
+        cnt = 0
+        for a in itertools.product(list(range(-masksize, masksize+1)), list(range(-masksize, masksize+1))):
+            res += shift(arr, a, cval=0)
+            cnt +=1
+        res /= cnt
+        for i in range(masksize):
+            res = np.delete(res, 0, axis=0)
+            res = np.delete(res, -1, axis=0)
+            res = np.delete(res, 0, axis=1)
+            res = np.delete(res, -1, axis=1)
+        return res.reshape((size - 2 * masksize)**2, 1)
 
     def describe(self):
         print("\tsize ->", "-".join(map(str, self.n_layers)))
@@ -260,7 +282,7 @@ class unit(object):
                     error.append(error_this)
                     errors.update({error_this: p})
                     if cnt % 1000 == 0 and cnt != 0:
-                        if self.check_progress(cnt, error, 1e-6) == StopIteration:
+                        if self.check_progress(cnt, error, 1e-3) == StopIteration:
                             raise StopIteration
 
                 # fukusyu

@@ -59,7 +59,7 @@ def f_softmax(output):
 
 def f_softmax_cost(output, targets):
     output = f_softmax(output)
-    return - sum([j * np.log(i) for i, j in zip(output, targets)])
+    return - sum([j * np.log(i) + (1 - j) * np.log(1 - i) for i, j in zip(output, targets)])
 
 
 def f_de_softmax(output, targets):

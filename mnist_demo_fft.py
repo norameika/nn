@@ -72,7 +72,7 @@ def get_pickle(name):
 
 def mnist_cherrypic(fp):
     while 1:
-        u = myunit(784*2, 777, 777, 10)
+        u = myunit(784*2, 3000, 3000, 10)
         u.weights_mask[0] = utils.gen_mask_fft(*u.weights_mask[0].shape)
         u.activation_temp = 10 ** (-3 - np.random.normal(0, 1))
         u.alpha = 10 ** (-3 - np.random.normal(0, 1))
