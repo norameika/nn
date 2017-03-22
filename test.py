@@ -33,10 +33,15 @@ def check_gen_id(n):
 
 
 def anonymous():
-    a = [1, 2, 4, 6]
-    random.shuffle(a)
-    print(a)
-    print(utils.gen_mask_fft(10, 8))
+    # a = [1, 2, 4, 6]
+    # random.shuffle(a)
+    # print(a)
+    # print(utils.gen_mask_fft(10, 8))
+    import time
+
+    for i in range(100):
+        time.sleep(0.1)
+        print ('[%s%%]\r'  % ("=" * i), end="")
     # print(np.matmul(a, b))
 if __name__ == '__main__':
     # check_get_latest()

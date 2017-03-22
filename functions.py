@@ -1,4 +1,5 @@
 import numpy as np
+import numpy
 
 
 class activation_func(object):
@@ -44,7 +45,7 @@ def f_square_error(output):
 
 
 def f_square_cost(output, targets):
-    return sum([(i - j) ** 2 for i, j in zip(output, targets)]) / 2
+    return sum((output - targets) ** 2) / 2
 
 
 def f_de_square_error(output, targets):
@@ -53,16 +54,19 @@ def f_de_square_error(output, targets):
 square_error = cost_func(f_square_error, f_de_square_error, f_square_cost, "square_error")
 
 
-def f_softmax(output):
+def f_logloss(output):
     return np.exp(output) / sum(np.exp(output))
 
+cap = lambda x: max(min(x, 1 - 1E-15), 1E-15)
+cap = numpy.vectorize(cap)
 
-def f_softmax_cost(output, targets):
-    output = f_softmax(output)
-    return - sum([j * np.log(i) + (1 - j) * np.log(1 - i) for i, j in zip(output, targets)])
+def f_logloss_cost(output, targets):
+    output = cap(f_logloss(output))
+    return - sum(targets * np.log(output))
 
 
-def f_de_softmax(output, targets):
-    output = f_softmax(output)
+def f_de_logloss(output, targets):
+    output = f_logloss(output)
     return (targets - output)
-softmax = cost_func(f_softmax, f_de_softmax, f_softmax_cost, "softmax")
+
+logloss = cost_func(f_logloss, f_de_logloss, f_logloss_cost, "logloss")
