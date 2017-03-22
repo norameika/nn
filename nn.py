@@ -60,10 +60,11 @@ class unit(object):
         self.cost_func = functions.square_error
         self.initialization("gaussian", 0, self.delta)
 
-    def set_activation_func(self, funcs):
+    def set_activation_func(self, funcs, **kwargs):
+        if "weight" in kwargs.keys(): weight = kwargs["weight"]
+        else: weight = [1] * len(funcs)
         for n in self.n_layers[1:]:
-            """activation func, derivative of func, name"""
-            self.funcs.append(np.array([[f.func, f.derv, f.name] for f in [random.choice(funcs) for i in range(n)]]).T)
+            self.funcs.append(np.array([[f[0].func, f[0].derv, f[0].name] for f in [np.random.choice(funcs, 1, weight) for i in range(n)]]).T)
 
     def initialization(self, how, *args):
         if how == "gaussian":
@@ -224,7 +225,7 @@ class unit(object):
                             print(res)
                             raise StopIteration
                         else:
-                            print ("epech[%04d], cnt[%06d], cost[%6.4s], trend[%s]\r" % (i, cnt, res[1], np.sign(res[2])), end="")
+                            print ("epech[%04d], cnt[%06d], cost[%6.4s], trend[%s]\r" % (i, cnt, res[1], np.sign(res[2])), end="", flush=True)
                 # fukusyu
                 if fukusyu:
                     (_, patterns_fukusyu) = zip(*sorted(errors.items(), key=lambda x: x[0], reverse=1))
@@ -241,7 +242,7 @@ class unit(object):
                                 print(res)
                                 raise StopIteration
                             else:
-                                print ("epech[%04d], cnt[%06d], cost[%6.4s], trend[%s]\r" % (i, cnt, res[1], np.sign(res[2])), end="")
+                                print ("epech[%04d], cnt[%06d], cost[%6.4s], trend[%s]\r" % (i, cnt, res[1], np.sign(res[2])), end="", flush=True)
                     error = sum(error) / len(patterns)
                     times = np.append(times, time.time() - s)
                 if i % interval == 0:

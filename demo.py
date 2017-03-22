@@ -45,6 +45,7 @@ def demo():
     u = myunit(2, 30, 2)
     u.name = "test"
     u.comment = "demo for XOR"
+    u.set_activation_func([functions.relu, functions.tanh], weight = [1, 1])
     u.cost_func = functions.logloss
     for _ in u.train(pat_train(), u.evaluate, (pat_eval(), 0)): pass
 
