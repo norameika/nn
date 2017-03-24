@@ -64,7 +64,6 @@ class unit(object):
         if "weight" in kwargs.keys(): weight = kwargs["weight"]
         else: weight = [1] * len(funcs)
         for n in self.n_layers[1:]:
-            """activation func, derivative of func, name"""
             self.funcs.append(np.array([[f[0].func, f[0].derv, f[0].name] for f in [np.random.choice(funcs, 1, weight) for i in range(n)]]).T)
 
     def initialization(self, how, *args):
