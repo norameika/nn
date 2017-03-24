@@ -45,7 +45,7 @@ def f_square_error(output):
 
 
 def f_square_cost(output, targets):
-    return sum((output - targets) ** 2) / 2
+    return ((output - targets) * (output - targets) / 2).sum()
 
 
 def f_de_square_error(output, targets):
