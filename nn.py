@@ -96,7 +96,7 @@ class unit(object):
             if n != 0: error = np.dot(self.weights[-n].T, delta)
             delta = np.array([f(i) for f, i in zip(self.funcs[-n-1][1], self.signals[-n-1])]) * error
             self.rs[-n-1] = self.beta * self.rs[-n-1] + (1 - self.beta) * (delta * delta).mean()
-            self.weights[-n-1] += (self.alpha / (1 + self.epsilon * epoch + (1+n)**-1) * np.array([i * self.signals[-n-2] for i in delta / np.sqrt(self.rs[-n-1] + 1E-4)]) + self.gamma * (self.weights[-n-1] - self.weights_buff[-n-1]))
+            self.weights[-n-1] += (self.alpha / (1 + self.epsilon * (epoch + (1+n)**-2)) * np.array([i * self.signals[-n-2] for i in delta / np.sqrt(self.rs[-n-1] + 1E-4)]) + self.gamma * (self.weights[-n-1] - self.weights_buff[-n-1]))
         self.weights_buff = buff
         error_in = np.dot(self.weights[0].T, delta)
         return self.cost_func.cost(self.signals[-1], targets, ), error_in
@@ -202,62 +202,45 @@ class unit(object):
         print("evaluation -> %s" % self.cost_func.name)
         print("comment -> %s" % self.comment)
 
-    def train(self, patterns, eval_fanc=0, arg=0, epoch=10, how="online, Momentumsgd", interval=1, save=0, fukusyu=0):
+    def train(self, patterns, eval_fanc=0, arg=0, epoch=10, interval=1, save=0, fukusyu=0):
+        """momentam SGD"""
         print("Start train..")
         self.describe()
-        if how == "online, Momentumsgd":
-            times = np.array([])
-            for i in range(epoch):
-                error = list()
-                errors = dict()
-                s = time.time()
-                random.shuffle(patterns)
-                for cnt, p in enumerate(patterns):
-                    inputs = p[0]
-                    targets = p[1]
-                    self.forward_propagation(inputs)
-                    error_this, _ = self.back_propagation(targets, epoch)
-                    error.append(error_this)
-                    errors.update({error_this: p})
-                    if cnt % 1000 == 0 and cnt != 0:
-                        flag, res = self.check_progress(cnt, error, 1e-6)
-                        if flag == StopIteration:
-                            print(res)
-                            raise StopIteration
-                        else:
-                            print ("epech[%04d], cnt[%06d], cost[%6.4s], trend[%s]\r" % (i, cnt, res[1], np.sign(res[2])), end="", flush=True)
-                # fukusyu
-                if fukusyu:
-                    (_, patterns_fukusyu) = zip(*sorted(errors.items(), key=lambda x: x[0], reverse=1))
-                    errors_fukusyu = dict()
-                    for cnt, p in enumerate(patterns_fukusyu[:len(patterns) // 3]):
-                        inputs = p[0]
-                        targets = p[1]
-                        self.forward_propagation(inputs)
-                        error_this, _ = self.back_propagation(targets, epoch)
-                        errors_fukusyu.update({error_this: p})
-                        if cnt % 1000 == 0 and cnt != 0:
-                            flag, res = self.check_progress(cnt, error, 1e-6)
-                            if flag == StopIteration:
-                                print(res)
-                                raise StopIteration
-                            else:
-                                print ("epech[%04d], cnt[%06d], cost[%6.4s], trend[%s]\r" % (i, cnt, res[1], np.sign(res[2])), end="", flush=True)
-                    error = sum(error) / len(patterns)
-                    times = np.append(times, time.time() - s)
-                if i % interval == 0:
-                    if eval_fanc:
-                        print("\n")
-                        yield i, error, eval_fanc(*arg)
-                    else:
-                        yield i, error
-                self.generation += 1
+        for i in range(epoch):
+            error, pat_fukusyu = self.online_train(patterns, i)
+            if fukusyu: self.online_train(pat_fukusyu)
+            if i % interval == 0:
+                if eval_fanc:
+                    print("\n")
+                    yield i, error, eval_fanc(*arg)
+                else:
+                    yield i, error
+            self.generation += 1
 
-            if save: self.save()
-            self.log(len(patterns))
+        if save: self.save()
+        self.log(len(patterns))
 
-        elif how == "batch":
-            pass
+    def online_train(self, patterns, epoch, report_freq=1000):
+        error = list()
+        errors = dict()
+        for cnt, p in enumerate(patterns):
+            inputs = p[0]
+            targets = p[1]
+            self.forward_propagation(inputs)
+            error_this, _ = self.back_propagation(targets, epoch)
+            error.append(error_this)
+            errors.update({error_this: p})
+            if cnt % report_freq == 0 and cnt != 0:
+                flag, res = self.check_progress(cnt, error, 1e-6)
+                if flag == StopIteration:
+                    print(res)
+                    raise StopIteration
+                else:
+                    print ("epech[%04d], cnt[%06d], cost[%6.4s], trend[%s]\r" % (epoch, cnt, res[1], np.sign(res[2])), end="")
+        (_, patterns_fukusyu) = zip(*sorted(errors.items(), key=lambda x: x[0], reverse=1))
+        return sum(error) / len(patterns), patterns_fukusyu[:len(patterns) // 3]
+
+
 
 if __name__ == '__main__':
     pass
