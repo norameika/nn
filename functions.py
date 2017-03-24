@@ -60,6 +60,7 @@ def f_logloss(output):
 cap = lambda x: max(min(x, 1 - 1E-15), 1E-15)
 cap = numpy.vectorize(cap)
 
+
 def f_logloss_cost(output, targets):
     output = cap(f_logloss(output))
     return - sum(targets * np.log(output))
