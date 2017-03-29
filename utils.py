@@ -6,6 +6,8 @@ except:
     import functions
 from matplotlib import pylab as plt
 import matplotlib.animation as animation
+import pickle
+import os
 
 
 def flatten(arr):
@@ -154,6 +156,36 @@ class animator(object):
     def func_dammy(self):
         for i, j in enumerate(range(10000)):
             yield i, j, 0.5
+
+def get_pickle(name, num=3, reverse=1):
+    """reverse=1: high -> low"""
+    res = list()
+    for f in os.listdir("./pickle"):
+        if name in f:
+            try:
+                pnt = float(".".join(re.split("score|p|_", f)[-5:-3]))
+            except:
+                pnt = 0.
+            res.append([f, pnt])
+    fs = list(zip(*sorted(res, key=lambda x: x[1], reverse=reverse)))[0][:num]
+    return ["./pickle/%s" % f for f in fs]
+
+
+def get_pre_trained_model(name, num, reverse=0):
+    units = list()
+    ids = list()
+    for f in get_pickle(name, num=100, reverse=reverse):
+        with open(f, mode="rb") as ob:
+            identity = ob.name.split("_")[2]
+            print(ob, identity)
+            ob = pickle.load(ob)
+            if identity not in ids:
+                units.append(ob)
+                ids.append(identity)
+            else:
+                print("skipped %s" % f)
+            if len(ids) >= num: break
+    return units
 
 if __name__ == '__main__':
     ani = animator()

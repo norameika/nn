@@ -14,23 +14,22 @@ import os
 import time
 import pandas
 import scipy
+import copy
 
 seaborn.set(style="darkgrid", palette="muted", color_codes=True)
 
 
 class unit(object):
-    def __init__(self, *args):
+    def __init__(self, *args, **kwargs):
         self.n_layers = list(args)
         if len(args) < 2:
             raise ValueError("wrong number of inputs")
         self.n_layers[0] = self.n_layers[0] + 1  # fisrt layer for constant
 
         self.weights = list()
-        self.weights_buff = list()
         for n, n_next in zip(self.n_layers, self.n_layers[1:]):
-            mtrx = utils.gen_matrix(n_next, n)
-            self.weights.append(mtrx)
-            self.weights_buff.append(mtrx)
+            self.weights.append(utils.gen_matrix(n_next, n))
+        self.weights_buff = copy.deepcopy(self.weights)
 
         self.signals = list()
         for n in range(len(self.n_layers)):
@@ -41,18 +40,16 @@ class unit(object):
         self.beta = min(1, numpy.random.normal(0.8, 0.05))
         self.gamma = min(1, numpy.random.normal(0.8, 0.05))
         self.delta = 10 ** (-4 + numpy.random.normal(0, 1))
-        self.epsilon = 0.5
-
-        self.comment = "no comment"
-
+        self.epsilon =  abs(numpy.random.normal(0.3, 0.1))
         self.rs = list()
         for n in self.n_layers[1:]:
             self.rs.append(numpy.array([10.] * n))
 
+        self.comment = "no comment"
         self.name = "no name"
         self.const = 1
         self.generation = 0
-        self.score = 0
+        self.score = 999
         self.score_prvs = 999
 
         # default settnig
@@ -60,6 +57,13 @@ class unit(object):
         self.set_activation_func([functions.tanh, functions.relu])
         self.cost_func = functions.square_error
         self.initialization("gaussian", 0, self.delta)
+
+        if "pre_units" in kwargs.keys():
+            self.pre_units = kwargs["pre_units"]
+            self.input_index = kwargs["input_index"]
+            self.unit_type = "connected"
+        else:
+            self.unit_type = "isolated"
 
     def set_activation_func(self, funcs, **kwargs):
         if "weight" in kwargs.keys(): weight = kwargs["weight"]
@@ -77,7 +81,14 @@ class unit(object):
             for cnt, w in enumerate(self.weights):
                 self.weights[cnt] = numpy.array([[utils.rand(-vmin, vmax) for i in range(w.shape[1])] for j in range(w.shape[0])])
 
-    def forward_propagation(self, inputs, dropout=0):
+    def get_signal_from_pre_unit(self, inputs):
+        return utils.flatten([u.forward_propagation([inputs[i], ]).tolist() for u, i in zip(self.pre_units, self.input_index)])
+
+    def forward_propagation(self, inputs):
+        if self.unit_type == "connected":
+            inputs = self.get_signal_from_pre_unit(inputs)
+        else:
+            inputs = utils.flatten(inputs)
         inputs = numpy.append(inputs, [self.const])
         if len(inputs) != self.n_layers[0]:
             raise ValueError("wrong number of inputs")
@@ -86,11 +97,15 @@ class unit(object):
             self.signals[i + 1] = numpy.array([f(j) for f, j in zip(self.funcs[i][0], numpy.dot(self.weights[i], self.signals[i]))])
         return self.cost_func.func(self.signals[-1])
 
-    def back_propagation(self, targets, epoch):
+    def back_propagation(self, targets, epoch, **kwargs):
         """momentan SDG"""
-        if len(targets) != self.n_layers[-1]:
+        if "error" in kwargs.keys():
+            error = kwargs["error"]
+        else:
+            error = self.cost_func.derv(self.signals[-1], targets)
+        if len(error) != self.n_layers[-1]:
+            print(len(error), self.n_layers[-1])
             raise ValueError("wrong number of target values")
-        error = self.cost_func.derv(self.signals[-1], targets)
         delta = 0
         buff = self.weights
         for n in range(len(self.signals[1:])):
@@ -105,24 +120,28 @@ class unit(object):
     def evaluate(self, patterns, save=0):
         """"""
         cnt, corrct = 0, 0
+        error = list()
         res = numpy.zeros(self.n_layers[-1] ** 2).reshape(self.n_layers[-1], self.n_layers[-1])
-        for p in patterns:
-            ans = self.forward_propagation(p[0], dropout=0)
-            corrct += self.evaluator(ans, p[1])
-            res[list(p[1]).index(max(p[1])), list(ans).index(max(ans))] += 1
+        out = list()
+        # w = numpy.array([1 / 251., 1 / 781., 1 / 451.])
+        for pat in patterns:
+            p, a = pat
+            ans = numpy.array([0] * len(a))
+            ans = numpy.array(self.forward_propagation(p))
+            out.append(ans)
+            error.append(self.cost_func.cost(self.signals[-1], a))
+            res[list(a).index(max(a)), :] += ans
             cnt += 1
-        print("%d / %d, raito%s" % (corrct, cnt, round(corrct / float(cnt) * 100, 2)))
+        for i in range(self.n_layers[-1]):
+            res[i, :] /= res[i, :].sum()
+        print("-"*100)
+        print("%d / %d, error%.3f" % (cnt, round(corrct / float(cnt) * 100, 2), sum(error) / len(error)))
         print(pandas.DataFrame(res, columns=["pred%s" % i for i in range(self.n_layers[-1])], index=["corr%s" % i for i in range(self.n_layers[-1])]))
-        print("-"*30)
+        print("-"*100)
+        # self.score = round(corrct / float(cnt) * 100, 2)
         self.score_prvs = self.score
-        self.score = round(corrct / float(cnt) * 100, 2)
-        return corrct / float(cnt)
-
-    def evaluator(self, res, tar):
-        if list(res).index(res.max()) == list(tar).index(1):
-            return 1
-        else:
-            return 0
+        self.score = sum(error) / len(error)
+        return ans
 
     def save(self):
         now = datetime.datetime.now()
@@ -140,63 +159,17 @@ class unit(object):
         f.write(self.comment)
         f.write("\n")
 
-    def clone(self, fp):
-        with open(fp, mode='rb') as f:
-            ob = pickle.load(f)
-            self.n_layers = ob.n_layers
-            self.signals = ob.signals
-            self.name = ob.name
-            self.weights = ob.weights
-            self.weights_buff = ob.weights_buff
-            self.funcs = ob.funcs
-            self.rs = ob.rs
-            self.generation = ob.generation + 1
-            self.score = ob.score
-            self.alpha, self.beta, self.gamma, self.delta, self.epsilon = ob.alpha, ob.beta, ob.gamma, ob.delta, ob.epsilon
-            print("copied % s" % f)
-
-    def reset_mask(self):
-        self.weights_mask = [utils.gen_mask(*w.shape) for w in self.weights_mask]
-
-    def reproduce(self, unit, new_unit):
-        for cnt, (w_dad, w_mom, w_dad_mask, w_mom_mask) in enumerate(zip(self.weights, unit.weights, self.weights_mask, unit.weights_mask)):
-            new_unit.weights[cnt] = utils.merge_matrix(w_dad, w_mom, new_unit.weights[cnt].shape)
-            new_unit.weights_mask[cnt] = utils.merge_matrix_mask(w_dad_mask, w_mom_mask, new_unit.weights_mask[cnt].shape)
-        new_unit.alpha = (self.alpha + unit.alpha) / 2
-        new_unit.generation = max([self.generation + unit.generation]) + 1
-        for n in range(len(new_unit.funcs)):
-            for i in range(new_unit.funcs[n].shape[1]):
-                name = str()
-                if n <= len(unit.funcs) - 1:
-                    if i < unit.funcs[n].shape[1]: name = unit.funcs[n][-1, i]
-                if i < self.funcs[n].shape[1] and not name: name = self.funcs[n][-1, i]
-                new_unit.funcs[n][0, i], new_unit.funcs[n][1, i], new_unit.funcs[n][2, i] = utils.gen_func(random.choice([name]))
-        new_unit.name = unit.name + "_jr"
-        return new_unit
-
     def check_progress(self, cnt, error, th=1e-7):
         x = numpy.array(list(range(len(error))))
         y = numpy.array(list(error))
         a, _, _, _, _ = scipy.stats.linregress(x, y)
-        if numpy.array(list(error)).std() < 0.0001:
+        if numpy.array(list(error)).std() < 0.000001:
             return StopIteration, ("saturated")
         if numpy.array(list(error)).mean() > 10:
             return StopIteration, ("overflow")
         if numpy.array(list(error)).std() != numpy.array(list(error)).std():
             return StopIteration, ("encontered nan")
         return 1, (cnt, numpy.array(list(error)).mean(), a)
-
-    def get_latest(self):
-        res = None
-        for f in os.listdir("./pickle"):
-            if not f.startswith(self.name): continue
-            if not res:
-                res = f
-                continue
-            if os.path.getmtime("./pickle/%s" % res) < os.path.getmtime("./pickle/%s" % f):
-                res = f
-        print("copied % s" % res)
-        self.clone("./pickle/%s" % res)
 
     def describe(self):
         print("-"*30)
@@ -206,129 +179,58 @@ class unit(object):
         print("evaluation -> %s" % self.cost_func.name)
         print("comment -> %s" % self.comment)
 
-    def train(self, patterns, eval_fanc=0, arg=0, epoch=10, interval=1, save=0, fukusyu=0):
+    def train(self, patterns, eval_fanc=0, arg=0, epoch=10, interval=1, save=0, fukusyu=0, pre_unit_train=0):
         """momentam SGD"""
         print("Start train..")
         self.describe()
         for i in range(epoch):
-            error, pat_fukusyu = self.online_train(patterns, i)
-            if fukusyu: self.online_train(pat_fukusyu, i)
+            error, pat_fukusyu = self.online_train(patterns, i, pre_unit_train=pre_unit_train)
+            if fukusyu: self.online_train(pat_fukusyu, i, pre_unit_train=pre_unit_train)
         if eval_fanc:
+            print("\n")
             yield i, error, eval_fanc(*arg)
         else:
             yield i, error
         self.generation += 1
-        if save and self.score < self.score_prvs and self.score < 1.35: self.save()
+
+        if save and self.score < 1.01 and self.score < self.score_prvs: self.save()
         self.log(len(patterns))
 
-    def online_train(self, patterns, epoch, report_freq=100):
+    def online_train(self, patterns, epoch, pre_unit_train = 0, report_freq=100):
         error = list()
         errors = dict()
         start = time.time()
-        for i in range(random.randint(1, 3)): random.shuffle(patterns)
+        for _ in range(random.randint(1, 3)): random.shuffle(patterns)
         for cnt, p in enumerate(patterns):
             inputs = p[0]
             targets = p[1]
             self.forward_propagation(inputs)
-            error_this, _ = self.back_propagation(targets, epoch)
+            error_this, error_pre_units = self.back_propagation(targets, epoch)
+            if pre_unit_train and self.unit_type == "connected":
+                n_outs = [0, ]
+                for u in self.pre_units: n_outs.extend([n_outs[-1] + u.n_layers[-1]])
+                for u, i, j in zip(self.pre_units, n_outs, n_outs[1:]):
+                    u.back_propagation(-1, epoch, error=error_pre_units[i: j])
             error.append(error_this)
             errors.update({error_this: p})
             if cnt % report_freq == 0 and cnt != 0:
-                ratio = cnt / float(len(patterns))
-                time_remain = int((time.time() - start) / ratio * (1 - ratio))
-                m, s = divmod(time_remain, 60)
-                h, m = divmod(m, 60)
-                time_remain = "%d:%02d:%02d" % (h, m, s)
-                flag, res = self.check_progress(cnt, error, 1e-6)
-                try:
-                    if numpy.sign(res[2]) > 0: trend = "+"
-                    else: trend = "-"
-                except: trend = "e"
-                if flag == StopIteration:
-                    print(res)
-                    raise StopIteration
-                else:
-                    print ("epech[%04d], cnt[%06d], cost[%6.4s], trend[%s], [%5.1f]%%, [%s]\r" % (epoch, cnt, res[1], trend, ratio*100, time_remain), end="")
+                self.report(cnt, start, len(patterns), error, epoch)
         (_, patterns_fukusyu) = zip(*sorted(errors.items(), key=lambda x: x[0], reverse=1))
         return sum(error) / len(patterns), list(patterns_fukusyu[:len(patterns) // 3])
 
-
-class unity(object):
-    def __init__(self, units, n_out):
-        self.units = units
-        self.n_out = n_out
-        self.n_interm = sum([u.n_layers[-1] for u in self.units])
-        self.n_layers = [self.n_interm, self.n_out]
-        self.hyper_unit = unit(self.n_interm, n_out)
-        self.name = "no name"
-        self.comment = "no comment"
-        self.hyper_unit.name = self.name
-        self.hyper_unit.comment = self.comment
-
-        self.score = -1
-        self.generation = 10000
-
-    def save(self):
-        now = datetime.datetime.now()
-        if not os.path.exists("./pickle"):
-            os.mkdir("./pickle")
-        with open('./pickle/%s_gen%s_score%s_%s_%02d%02d_%02d%02d%02d' % (self.name, self.generation, str(self.score).replace(".", "p"), now.year, now.month, now.day, now.hour, now.minute, now.second), mode='wb') as f:
-            pickle.dump(self, f)
-            print("saved as % s" % f.name)
-
-    def log(self, len_pat):
-        f = open("log.txt", "a")
-        f.write("%s " % self.name + " ".join(map(str, self.n_layers)))
-        f.write(" %s %s %s %s %s " % (self.hyper_unit.alpha, self.hyper_unit.beta, self.hyper_unit.gamma, self.hyper_unit.delta, self.hyper_unit.epsilon))
-        f.write("%s %s %s " % (self.generation, len_pat, self.score))
-        f.write(self.comment)
-        f.write("\n")
-
-    def set_activation_func(self, funcs, **kwargs):
-        self.hyper_unit.set_activation_func(funcs, kwargs)
-
-    def set_cost_func(self, cost_func):
-        self.hyper_unit.cost_func = cost_func
-
-    def get_interm_signal(self, inputs):
-        return utils.flatten([u.forward_propagation(inputs).tolist() for u in self.units])
-
-    def forward_propagation(self, inputs):
-        return self.hyper_unit.forward_propagation(self.get_interm_signal(inputs))
-
-    def back_propagation(self, targets, epoch):
-        self.hyper_unit(targets, epoch)
-
-    def train(self, patterns, eval_fanc=0, arg=0, epoch=10, interval=1, save=0, fukusyu=0):
-        patterns = [[self.get_interm_signal(p[0]), p[1]] for p in patterns]
-        for cnt, _ in enumerate(self.hyper_unit.train(patterns, eval_fanc=eval_fanc, arg=arg, epoch=epoch, interval=interval, save=0, fukusyu=fukusyu)):
-            yield _
-        self.generation += 1
-        if save: self.save()
-        self.log(len(patterns))
-
-    def evaluate(self, patterns, save=0):
-        """re-write by cost function"""
-        cnt, corrct = 0, 0
-        res = numpy.zeros(self.n_layers[-1] ** 2).reshape(self.n_layers[-1], self.n_layers[-1])
-        for p in patterns:
-            ans = self.forward_propagation(p[0])
-            corrct += self.evaluator(ans, p[1])
-            res[list(p[1]).index(max(p[1])), list(ans).index(max(ans))] += 1
-            cnt += 1
-        print("%d / %d, raito%s" % (corrct, cnt, round(corrct / float(cnt) * 100, 2)))
-        print(pandas.DataFrame(res, columns=["pred%s" % i for i in range(self.n_layers[-1])], index=["corr%s" % i for i in range(self.n_layers[-1])]))
-        print("-"*30)
-        self.score = round(corrct / float(cnt) * 100, 2)
-        return corrct / float(cnt)
-
-    def evaluator(self, res, tar):
-        """re-write by cost function"""
-        if list(res).index(res.max()) == list(tar).index(1):
-            return 1
+    def report(self, cnt, start, len_pat, error, epoch):
+        ratio = cnt / float(len_pat)
+        time_remain = int((time.time() - start) / ratio * (1 - ratio))
+        m, s = divmod(time_remain, 60)
+        h, m = divmod(m, 60)
+        time_remain = "%d:%02d:%02d" % (h, m, s)
+        flag, res = self.check_progress(cnt, error, 1e-6)
+        try:
+            if numpy.sign(res[2]) > 0: trend = "+"
+            else: trend = "-"
+        except: trend = "e"
+        if flag == StopIteration:
+            print(res)
+            raise StopIteration
         else:
-            return 0
-
-
-if __name__ == '__main__':
-    pass
+            print ("epech[%04d], cnt[%06d], cost[%6.4s], trend[%s], [%5.1f]%%, [%s]\r" % (epoch, cnt, res[1], trend, ratio*100, time_remain), end="")
