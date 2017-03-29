@@ -40,8 +40,8 @@ class unit(object):
         self.alpha = 10 ** (-3 + numpy.random.normal(0, 1))
         self.beta = min(1, numpy.random.normal(0.8, 0.05))
         self.gamma = min(1, numpy.random.normal(0.8, 0.05))
-        self.delta = 10 ** (-3 + numpy.random.normal(0, 1))
-        self.epsilon = 0.01
+        self.delta = 10 ** (-4 + numpy.random.normal(0, 1))
+        self.epsilon = 0.5
 
         self.comment = "no comment"
 
@@ -53,6 +53,7 @@ class unit(object):
         self.const = 1
         self.generation = 0
         self.score = 0
+        self.score_prvs = 999
 
         # default settnig
         self.funcs = list()
@@ -113,9 +114,8 @@ class unit(object):
         print("%d / %d, raito%s" % (corrct, cnt, round(corrct / float(cnt) * 100, 2)))
         print(pandas.DataFrame(res, columns=["pred%s" % i for i in range(self.n_layers[-1])], index=["corr%s" % i for i in range(self.n_layers[-1])]))
         print("-"*30)
+        self.score_prvs = self.score
         self.score = round(corrct / float(cnt) * 100, 2)
-        if save:
-            self.save()
         return corrct / float(cnt)
 
     def evaluator(self, res, tar):
@@ -213,20 +213,19 @@ class unit(object):
         for i in range(epoch):
             error, pat_fukusyu = self.online_train(patterns, i)
             if fukusyu: self.online_train(pat_fukusyu, i)
-            if i % interval == 0:
-                if eval_fanc:
-                    print("\n")
-                    yield i, error, eval_fanc(*arg)
-                else:
-                    yield i, error
-            self.generation += 1
-
-        if save: self.save()
+        if eval_fanc:
+            yield i, error, eval_fanc(*arg)
+        else:
+            yield i, error
+        self.generation += 1
+        if save and self.score < self.score_prvs and self.score < 1.35: self.save()
         self.log(len(patterns))
 
-    def online_train(self, patterns, epoch, report_freq=1000):
+    def online_train(self, patterns, epoch, report_freq=100):
         error = list()
         errors = dict()
+        start = time.time()
+        for i in range(random.randint(1, 3)): random.shuffle(patterns)
         for cnt, p in enumerate(patterns):
             inputs = p[0]
             targets = p[1]
@@ -235,14 +234,23 @@ class unit(object):
             error.append(error_this)
             errors.update({error_this: p})
             if cnt % report_freq == 0 and cnt != 0:
+                ratio = cnt / float(len(patterns))
+                time_remain = int((time.time() - start) / ratio * (1 - ratio))
+                m, s = divmod(time_remain, 60)
+                h, m = divmod(m, 60)
+                time_remain = "%d:%02d:%02d" % (h, m, s)
                 flag, res = self.check_progress(cnt, error, 1e-6)
+                try:
+                    if numpy.sign(res[2]) > 0: trend = "+"
+                    else: trend = "-"
+                except: trend = "e"
                 if flag == StopIteration:
                     print(res)
                     raise StopIteration
                 else:
-                    print ("epech[%04d], cnt[%06d], cost[%6.4s], trend[%s]\r" % (epoch, cnt, res[1], numpy.sign(res[2])), end="")
+                    print ("epech[%04d], cnt[%06d], cost[%6.4s], trend[%s], [%5.1f]%%, [%s]\r" % (epoch, cnt, res[1], trend, ratio*100, time_remain), end="")
         (_, patterns_fukusyu) = zip(*sorted(errors.items(), key=lambda x: x[0], reverse=1))
-        return sum(error) / len(patterns), patterns_fukusyu[:len(patterns) // 3]
+        return sum(error) / len(patterns), list(patterns_fukusyu[:len(patterns) // 3])
 
 
 class unity(object):
