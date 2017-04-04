@@ -55,7 +55,9 @@ square_error = cost_func(f_square_error, f_de_square_error, f_square_cost, "squa
 
 
 def f_logloss(output):
-    return np.exp(output) / sum(np.exp(output))
+    e_x = numpy.exp(output - numpy.max(output))
+    return e_x / e_x.sum(axis=0)
+    # return np.exp(output) / sum(np.exp(output))
 
 cap = lambda x: max(min(x, 1 - 1E-15), 1E-15)
 cap = numpy.vectorize(cap)

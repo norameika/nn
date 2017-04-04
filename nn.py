@@ -19,6 +19,36 @@ import copy
 seaborn.set(style="darkgrid", palette="muted", color_codes=True)
 
 
+class node(object):
+    def __init__(self, n, dropout, end):
+        self.n = n
+        self.signal = numpy.array([0] * n)
+        self.dropout = dropout
+        self.mask = numpy.array([1] * n)
+        self.end = end
+
+    def forward_propagation(self, funcs, weight, evaluate):
+        if self.dropout and not evaluate: self.update_dropout_mask(self.n)
+        else: self.mask = numpy.array([1] * self.n)
+        return numpy.array([f(j) for f, j in zip(funcs, numpy.dot(weight, self.mask * self.signal))])
+
+    def back_propagation(self, error, funcs_upper_step, rs, beta, alpha, epsilon, signal_upper_step, gamma, weight, weight_buff, epoch, step, node_upper, evaluate=0):
+        if self.dropout and not evaluate: self.update_dropout_mask(self.n)
+        delta = numpy.array([f(i) for f, i in zip(funcs_upper_step, node_upper.signal)]) * error
+        delta_mask = delta * node_upper.mask
+        # rs = beta * rs + (1 - beta) * (delta_mask * delta_mask).mean()
+        # weight_delta = (alpha / (1 + epsilon * (epoch + (1+step*2)**-2)) * numpy.array([i * self.signal for i in delta_mask / numpy.sqrt(rs + 1E-4)]) + gamma * (weight - weight_buff))
+        weight_delta = (alpha) * numpy.array([i * self.signal for i in delta_mask])
+        return weight_delta, rs, delta
+
+    def set_signal(self, signal):
+        self.signal = signal
+
+    def update_dropout_mask(self, n):
+        mask = numpy.array([i < 1.33 and i > -1.33 for i in numpy.random.normal(0, 1, n)]).astype(numpy.int16)
+        self.mask = mask
+
+
 class unit(object):
     def __init__(self, *args, **kwargs):
         self.n_layers = list(args)
@@ -26,14 +56,12 @@ class unit(object):
             raise ValueError("wrong number of inputs")
         self.n_layers[0] = self.n_layers[0] + 1  # fisrt layer for constant
 
-        self.weights = list()
-        for n, n_next in zip(self.n_layers, self.n_layers[1:]):
-            self.weights.append(utils.gen_matrix(n_next, n))
+        self.weights = [utils.gen_matrix(n_next, n) for n, n_next in zip(self.n_layers, self.n_layers[1:])]
         self.weights_buff = copy.deepcopy(self.weights)
 
-        self.signals = list()
-        for n in range(len(self.n_layers)):
-            self.signals.append(numpy.array([0.] * n))
+        if "dropout" in kwargs.keys(): self.dropout = kwargs["dropout"]
+        else: self.dropout = 0
+        self.nodes = [node(n, dropout=self.dropout, end=int(cnt == 0)) for cnt, n in enumerate(self.n_layers)]
 
         # hyper parameters
         self.alpha = 10 ** (-3 + numpy.random.normal(0, 1))
@@ -41,9 +69,7 @@ class unit(object):
         self.gamma = min(1, numpy.random.normal(0.8, 0.05))
         self.delta = 10 ** (-4 + numpy.random.normal(0, 1))
         self.epsilon =  abs(numpy.random.normal(0.3, 0.1))
-        self.rs = list()
-        for n in self.n_layers[1:]:
-            self.rs.append(numpy.array([10.] * n))
+        self.rs = [numpy.array([10.] * n) for n in self.n_layers[1:]]
 
         self.comment = "no comment"
         self.name = "no name"
@@ -84,7 +110,7 @@ class unit(object):
     def get_signal_from_pre_unit(self, inputs):
         return utils.flatten([u.forward_propagation([inputs[i], ]).tolist() for u, i in zip(self.pre_units, self.input_index)])
 
-    def forward_propagation(self, inputs):
+    def forward_propagation(self, inputs, evaluate=0):
         if self.unit_type == "connected":
             inputs = self.get_signal_from_pre_unit(inputs)
         else:
@@ -92,30 +118,46 @@ class unit(object):
         inputs = numpy.append(inputs, [self.const])
         if len(inputs) != self.n_layers[0]:
             raise ValueError("wrong number of inputs")
-        self.signals[0] = inputs
-        for i in range(len(self.signals[1:])):
-            self.signals[i + 1] = numpy.array([f(j) for f, j in zip(self.funcs[i][0], numpy.dot(self.weights[i], self.signals[i]))])
-        return self.cost_func.func(self.signals[-1])
+
+        self.nodes[0].set_signal(inputs)
+        for cnt, (n, n_next) in enumerate(zip(self.nodes, self.nodes[1:])):
+            n_next.set_signal(n.forward_propagation(self.funcs[cnt][0], self.weights[cnt], evaluate=evaluate))
+        return self.cost_func.func(self.nodes[-1].signal)
 
     def back_propagation(self, targets, epoch, **kwargs):
         """momentan SDG"""
         if "error" in kwargs.keys():
             error = kwargs["error"]
         else:
-            error = self.cost_func.derv(self.signals[-1], targets)
+            error = self.cost_func.derv(self.nodes[-1].signal, targets)
         if len(error) != self.n_layers[-1]:
             print(len(error), self.n_layers[-1])
             raise ValueError("wrong number of target values")
         delta = 0
         buff = self.weights
-        for n in range(len(self.signals[1:])):
-            if n != 0: error = numpy.dot(self.weights[-n].T, delta)
-            delta = numpy.array([f(i) for f, i in zip(self.funcs[-n-1][1], self.signals[-n-1])]) * error
-            self.rs[-n-1] = self.beta * self.rs[-n-1] + (1 - self.beta) * (delta * delta).mean()
-            self.weights[-n-1] += (self.alpha / (1 + self.epsilon * (epoch + (1+n)**-2)) * numpy.array([i * self.signals[-n-2] for i in delta / numpy.sqrt(self.rs[-n-1] + 1E-4)]) + self.gamma * (self.weights[-n-1] - self.weights_buff[-n-1]))
+        for cnt, (n, n_prev) in enumerate(zip(self.nodes[::-1], self.nodes[::-1][1:])):
+            if cnt != 0: error = numpy.dot(self.weights[-cnt].T, delta)
+            weight_delta, rs, delta = n_prev.back_propagation(error, self.funcs[-cnt-1][1], self.rs[-cnt-1],
+                                                              self.beta, self.alpha, self.epsilon,
+                                                              n.signal, self.gamma, self.weights[-cnt-1],
+                                                              self.weights_buff[-cnt-1], epoch, cnt, n)
+            self.weights[-cnt-1] += weight_delta
+            self.rs[-cnt-1] = rs
+            delta = delta
         self.weights_buff = buff
         error_in = numpy.dot(self.weights[0].T, delta)
-        return self.cost_func.cost(self.signals[-1], targets, ), error_in
+        return self.cost_func.cost(self.nodes[-1].signal, targets, ), error_in
+
+
+
+        # for n in range(len(self.signals[1:])):
+        #     if n != 0: error = numpy.dot(self.weights[-n].T, delta)
+        #     delta = numpy.array([f(i) for f, i in zip(self.funcs[-n-1][1], self.signals[-n-1])]) * error
+        #     self.rs[-n-1] = self.beta * self.rs[-n-1] + (1 - self.beta) * (delta * delta).mean()
+        #     self.weights[-n-1] += (self.alpha / (1 + self.epsilon * (epoch + (1+n)**-2)) * numpy.array([i * self.signals[-n-2] for i in delta / numpy.sqrt(self.rs[-n-1] + 1E-4)]) + self.gamma * (self.weights[-n-1] - self.weights_buff[-n-1]))
+        # self.weights_buff = buff
+        # error_in = numpy.dot(self.weights[0].T, delta)
+        # return self.cost_func.cost(self.signals[-1], targets, ), error_in
 
     def evaluate(self, patterns, save=0):
         """"""
@@ -127,15 +169,16 @@ class unit(object):
         for pat in patterns:
             p, a = pat
             ans = numpy.array([0] * len(a))
-            ans = numpy.array(self.forward_propagation(p))
+            ans = numpy.array(self.forward_propagation(p, evaluate=1))
             out.append(ans)
-            error.append(self.cost_func.cost(self.signals[-1], a))
+            error.append(self.cost_func.cost(self.nodes[-1].signal, a))
             res[list(a).index(max(a)), :] += ans
             cnt += 1
+            corrct += int(list(a).index(max(a)) == list(ans).index(max(ans)))
         for i in range(self.n_layers[-1]):
             res[i, :] /= res[i, :].sum()
         print("-"*100)
-        print("%d / %d, error%.3f" % (cnt, round(corrct / float(cnt) * 100, 2), sum(error) / len(error)))
+        print("%d / %d, %d%%, error%.3f" % (corrct, cnt, round(corrct / float(cnt) * 100., 2), sum(error) / len(error)))
         print(pandas.DataFrame(res, columns=["pred%s" % i for i in range(self.n_layers[-1])], index=["corr%s" % i for i in range(self.n_layers[-1])]))
         print("-"*100)
         # self.score = round(corrct / float(cnt) * 100, 2)
@@ -160,6 +203,7 @@ class unit(object):
         f.write("\n")
 
     def check_progress(self, cnt, error, th=1e-7):
+        error = list(error)[-len(error) // 2:]
         x = numpy.array(list(range(len(error))))
         y = numpy.array(list(error))
         a, _, _, _, _ = scipy.stats.linregress(x, y)
@@ -169,7 +213,7 @@ class unit(object):
             return StopIteration, ("overflow")
         if numpy.array(list(error)).std() != numpy.array(list(error)).std():
             return StopIteration, ("encontered nan")
-        return 1, (cnt, numpy.array(list(error)).mean(), a)
+        return 1, (cnt, numpy.array(error).mean(), a)
 
     def describe(self):
         print("-"*30)

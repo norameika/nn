@@ -40,10 +40,13 @@ import nn
 
 
 def demo():
-    u = nn.unit(3, 200, 2)
+    u = nn.unit(3, 1000, 2, dropout=0)
     u.name = "test"
     u.comment = "demo for XOR"
     u.set_activation_func([functions.relu, functions.tanh])
+    u.alpha = 0.001
+
+
     u.cost_func = functions.logloss
     for _ in u.train(pat_train(), u.evaluate, (pat_eval(), 0), epoch=2, pre_unit_train=0): pass
 
