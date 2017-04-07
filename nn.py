@@ -33,7 +33,6 @@ class node(object):
         return numpy.array([f(j) for f, j in zip(funcs, numpy.dot(weight, self.mask * self.signal))])
 
     def back_propagation(self, error, funcs_upper_step, rs, beta, alpha, epsilon, signal_upper_step, gamma, weight, weight_buff, epoch, step, node_upper, evaluate=0):
-        if self.dropout and not evaluate: self.update_dropout_mask(self.n)
         delta = numpy.array([f(i) for f, i in zip(funcs_upper_step, node_upper.signal)]) * error
         delta_mask = delta * node_upper.mask
         # rs = beta * rs + (1 - beta) * (delta_mask * delta_mask).mean()
@@ -45,8 +44,8 @@ class node(object):
         self.signal = signal
 
     def update_dropout_mask(self, n):
-        mask = numpy.array([i < 1.33 and i > -1.33 for i in numpy.random.normal(0, 1, n)]).astype(numpy.int16)
-        self.mask = mask
+        mask = numpy.array([i < 1. and i > -1. for i in numpy.random.normal(0, 1, n)]).astype(numpy.int16)
+        self.mask = mask / 0.6825
 
 
 class unit(object):
@@ -240,7 +239,7 @@ class unit(object):
         if save and self.score < 1.01 and self.score < self.score_prvs: self.save()
         self.log(len(patterns))
 
-    def online_train(self, patterns, epoch, pre_unit_train = 0, report_freq=100):
+    def online_train(self, patterns, epoch, pre_unit_train = 0, report_freq=1000):
         error = list()
         errors = dict()
         start = time.time()
