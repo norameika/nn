@@ -69,7 +69,7 @@ def f_logloss_cost(output, targets):
 
 
 def f_de_logloss(output, targets):
-    output = f_logloss(output)
+    # output = f_logloss(output)
     return (targets - output)
 
 logloss = cost_func(f_logloss, f_de_logloss, f_logloss_cost, "logloss")

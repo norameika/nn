@@ -25,7 +25,6 @@ class node(object):
         self.signal = numpy.array([0] * n)
         self.dropout = dropout
         self.mask = numpy.array([1] * n)
-        self.end = end
 
     def forward_propagation(self, funcs, weight, evaluate):
         if self.dropout and not evaluate: self.update_dropout_mask(self.n)
@@ -36,17 +35,16 @@ class node(object):
         if self.dropout and not evaluate: self.update_dropout_mask(self.n)
         delta = numpy.array([f(i) for f, i in zip(funcs_upper_step, node_upper.signal)]) * error
         delta_mask = delta * node_upper.mask
-        # rs = beta * rs + (1 - beta) * (delta_mask * delta_mask).mean()
-        # weight_delta = (alpha / (1 + epsilon * (epoch + (1+step*2)**-2)) * numpy.array([i * self.signal for i in delta_mask / numpy.sqrt(rs + 1E-4)]) + gamma * (weight - weight_buff))
-        weight_delta = (alpha) * numpy.array([i * self.signal for i in delta_mask])
+        rs = beta * rs + (1 - beta) * (delta_mask * delta_mask).mean()
+        weight_delta = (alpha / (1 + epsilon * (epoch + (1+step*2)**-2)) * numpy.array([i * self.signal for i in delta_mask / numpy.sqrt(rs + 1E-4)]) + gamma * (weight - weight_buff))
         return weight_delta, rs, delta
 
     def set_signal(self, signal):
         self.signal = signal
 
     def update_dropout_mask(self, n):
-        mask = numpy.array([i < 1.33 and i > -1.33 for i in numpy.random.normal(0, 1, n)]).astype(numpy.int16)
-        self.mask = mask
+        mask = numpy.array([i < 1 and i > -1 for i in numpy.random.normal(0, 1, n)]).astype(numpy.int16)
+        self.mask = mask / 0.6825
 
 
 class unit(object):
