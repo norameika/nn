@@ -15,21 +15,21 @@ def pat_train():
         [[[1, 1, 1], ], [0, 1]],
     ]
     res = list()
-    for i in range(500): res += pat
+    for i in range(1000): res += pat
     random.shuffle(res)
     return res
 
 
 def pat_eval():
     pat = [
-        [[[0, 0, 0]], [0, 1]],
-        [[[0, 0, 1]], [1, 0]],
-        [[[0, 1, 0]], [1, 0]],
-        [[[0, 1, 1]], [0, 1]],
-        [[[1, 0, 0]], [0, 1]],
-        [[[1, 0, 1]], [1, 0]],
-        [[[1, 1, 0]], [1, 0]],
-        [[[1, 1, 1]], [0, 1]],
+        [[[0, 0, 0], ], [0, 1]],
+        [[[0, 0, 1], ], [1, 0]],
+        [[[0, 1, 0], ], [1, 0]],
+        [[[0, 1, 1], ], [0, 1]],
+        [[[1, 0, 0], ], [0, 1]],
+        [[[1, 0, 1], ], [1, 0]],
+        [[[1, 1, 0], ], [1, 0]],
+        [[[1, 1, 1], ], [0, 1]],
     ]
     res = list()
     for i in range(20): res += pat
@@ -40,15 +40,15 @@ import nn
 
 
 def demo():
-    u = nn.unit(3, 1000, 2, dropout=0)
-    u.name = "test"
-    u.comment = "demo for XOR"
-    u.set_activation_func([functions.relu, functions.tanh])
-    u.alpha = 0.001
+    mymodel = nn.model()
+    mymodel.name = "test"
+    mymodel.add_propable([nn.fc(3, 100)])
+    mymodel.add_propable([nn.node(100)])
+    mymodel.add_propable([nn.fc(100, 2)])
+    mymodel.add_propable([nn.node_out(2)])
 
-
-    u.cost_func = functions.logloss
-    for _ in u.train(pat_train(), u.evaluate, (pat_eval(), 0), epoch=2, pre_unit_train=0): pass
+    mymodel.train(pat_train(), 10)
+    mymodel.eval(pat_eval())
 
 if __name__ == '__main__':
     demo()
