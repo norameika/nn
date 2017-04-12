@@ -187,6 +187,11 @@ def get_pre_trained_model(name, num, reverse=0):
             if len(ids) >= num: break
     return units
 
+def normalize(arr):
+    arr = (arr - arr.mean()) / arr.std()
+    # arr = (arr - min(arr)) / (max(arr) - min(arr))
+    return arr
+
 if __name__ == '__main__':
     ani = animator()
     ani.arrange_for_animation(ani.func_dammy())

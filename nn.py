@@ -15,264 +15,430 @@ import time
 import pandas
 import scipy
 import copy
+from PIL import Image, ImageOps
+import matplotlib.pyplot as plt
 
+pandas.set_option('display.width', 1000)
 seaborn.set(style="darkgrid", palette="muted", color_codes=True)
 
 
-class node(object):
-    def __init__(self, n, dropout, end):
+class prop(object):
+    def __init__(self, kind, *args, **kwargs):
+        self.kind = kind
+        self.inp = numpy.array([])
+        self.back_proptable = 1
+
+    def frwd_prop(self, inp, *args, **kwargs):
+        self.inp = numpy.array(inp)
+        pass
+
+    def frwd_prop_eval(self, inp, *args, **kwargs):
+        self.inp = numpy.array(inp)
+        if self.kind == "node":
+            return self.frwd_prop_eval(inp)
+        else:
+            return self.frwd_prop(inp)
+        pass
+
+    def back_prop(self, err, *args, **kwargs):
+        pass
+
+    def back_prop_out(self, tar, *args, **kwargs):
+        pass
+
+    def check_inp_dim(self, inp, *args, **kwargs):
+        return len(inp.shape)
+
+
+class node(prop):
+    """s
+    activation layer
+    """
+    def __init__(self, n, do=1):
+        prop.__init__(self, "node")
         self.n = n
-        self.signal = numpy.array([0] * n)
-        self.dropout = dropout
         self.mask = numpy.array([1] * n)
+        self.funcs = [f for f in [random.choice([functions.relu, functions.tanh]) for i in range(self.n)]]
+        self.do = do
 
-    def forward_propagation(self, funcs, weight, evaluate):
-        if self.dropout and not evaluate: self.update_dropout_mask(self.n)
-        else: self.mask = numpy.array([1] * self.n)
-        return numpy.array([f(j) for f, j in zip(funcs, numpy.dot(weight, self.mask * self.signal))])
+    def set_activation(self, funcs):
+        self.funcs = [f for f in [random.choice(funcs) for i in range(self.n)]]
 
-    def back_propagation(self, error, funcs_upper_step, rs, beta, alpha, epsilon, signal_upper_step, gamma, weight, weight_buff, epoch, step, node_upper, evaluate=0):
-        if self.dropout and not evaluate: self.update_dropout_mask(self.n)
-        delta = numpy.array([f(i) for f, i in zip(funcs_upper_step, node_upper.signal)]) * error
-        delta_mask = delta * node_upper.mask
-        rs = beta * rs + (1 - beta) * (delta_mask * delta_mask).mean()
-        weight_delta = (alpha / (1 + epsilon * (epoch + (1+step*2)**-2)) * numpy.array([i * self.signal for i in delta_mask / numpy.sqrt(rs + 1E-4)]) + gamma * (weight - weight_buff))
-        return weight_delta, rs, delta
+    def frwd_prop(self, inp):
+        super().frwd_prop(inp)
+        if self.do: self.update_dropout_mask(self.n)
+        out = numpy.array([f.func(j) for f, j in zip(self.funcs, self.mask * inp)])
+        return out.reshape([1] + list(out.shape))
 
-    def set_signal(self, signal):
-        self.signal = signal
+    def frwd_prop_eval(self, inp):
+        super().frwd_prop(inp)
+        self.mask = numpy.array([1] * self.n)
+        out = numpy.array([f.func(j) for f, j in zip(self.funcs, self.mask * inp)])
+        return out.reshape([1] + list(out.shape))
+
+    def back_prop(self, err):
+        out = numpy.array([f.derv(j) for f, j in zip(self.funcs, self.mask * self.inp)] * err)
+        return out.reshape([1] + list(out.shape))
 
     def update_dropout_mask(self, n):
-        mask = numpy.array([i < 1 and i > -1 for i in numpy.random.normal(0, 1, n)]).astype(numpy.int16)
+        mask = numpy.array([i < 1. and i > -1. for i in numpy.random.normal(0, 1, n)]).astype(numpy.int16)
         self.mask = mask / 0.6825
 
 
-class unit(object):
-    def __init__(self, *args, **kwargs):
-        self.n_layers = list(args)
-        if len(args) < 2:
-            raise ValueError("wrong number of inputs")
-        self.n_layers[0] = self.n_layers[0] + 1  # fisrt layer for constant
+class node_out(prop):
+    def __init__(self, n):
+        prop.__init__(self, "node_out")
+        self.n = n
+        self.func = functions.logloss
 
-        self.weights = [utils.gen_matrix(n_next, n) for n, n_next in zip(self.n_layers, self.n_layers[1:])]
-        self.weights_buff = copy.deepcopy(self.weights)
+    def frwd_prop(self, inp):
+        super().frwd_prop(inp)
+        return self.func.func(inp)
 
-        if "dropout" in kwargs.keys(): self.dropout = kwargs["dropout"]
-        else: self.dropout = 0
-        self.nodes = [node(n, dropout=self.dropout, end=int(cnt == 0)) for cnt, n in enumerate(self.n_layers)]
+    def back_prop(self, tar):
+        out = self.func.derv(self.inp, tar)
+        return out.reshape([1] + list(out.shape)), self.func.cost(self.inp, tar)
+
+
+class fc(prop):
+    """
+    fully connected layer
+    """
+    def __init__(self, n_inp, n_out, *args, **kwargs):
+        prop.__init__(self, "nn")
+        self.n_inp = n_inp + 1  # fisrt layer for constant
+        self.n_out = n_out
+
+        self.weight = utils.gen_matrix(self.n_out, self.n_inp)
+        self.weight_buff = copy.deepcopy(self.weight)
 
         # hyper parameters
         self.alpha = 10 ** (-3 + numpy.random.normal(0, 1))
         self.beta = min(1, numpy.random.normal(0.8, 0.05))
         self.gamma = min(1, numpy.random.normal(0.8, 0.05))
         self.delta = 10 ** (-4 + numpy.random.normal(0, 1))
-        self.epsilon =  abs(numpy.random.normal(0.3, 0.1))
-        self.rs = [numpy.array([10.] * n) for n in self.n_layers[1:]]
+        self.epsilon = numpy.array([10.] * self.n_out)
+        self.initialization(0, self.delta)
 
-        self.comment = "no comment"
-        self.name = "no name"
-        self.const = 1
-        self.generation = 0
+    def initialization(self, *args):
+        mean, sig = args
+        self.weight = numpy.array([numpy.random.normal(mean, sig, self.weight.shape[1]) for i in range(self.weight.shape[0])])
+
+    def frwd_prop(self, inp):
+        inp = numpy.append(inp, [1])
+        super().frwd_prop(inp)
+        out = numpy.dot(self.weight, inp)
+        return out.reshape([1] + list(out.shape))
+
+    def back_prop(self, err):
+        buff = self.weight
+        self.epsilon = self.beta * self.epsilon + (1 - self.beta) * (err * err).mean()
+        self.weight += self.alpha * numpy.array([i * self.inp for i in err / numpy.sqrt(self.epsilon + 1E-6)]) + self.gamma * (self.weight - self.weight_buff)
+        self.weight_buff = buff
+        out = numpy.dot(self.weight.T[:-1], err)
+        return out.reshape([1] + list(out.shape))
+
+    def reset_buf(self):
+        self.weight_buff = copy.deepcopy(self.weight)
+
+
+class cnvl(prop):
+    def __init__(self, ks, stride, inp_size, n_filters, *args, **kwargs):
+        prop.__init__(self, "cnvl")
+        s = time.time()
+        self.ks = ks
+        self.stride = stride
+        self.inp_size = inp_size
+        self.n_filters = n_filters
+
+        self.x = numpy.arange(0, self.inp_size[1] - self.ks, self.stride)
+        self.y = numpy.arange(0, self.inp_size[0] - self.ks, self.stride)
+        self.feat_map_size = (len(self.y), len(self.x))
+
+        self.kernel = [self.gen_kernal() for _ in range(n_filters)]
+        self.kernel_buf = copy.deepcopy(self.kernel)
+        self.b = abs(numpy.random.normal(0., 1E-10, n_filters))
+        self.out_shape = (self.feat_map_size[0], self.feat_map_size[1])
+        self.alpha = 0.001
+        self.beta = 0.9
+        self.th = 1.
+
+    def frwd_prop(self, inp):
+        cnvled = numpy.array([self.crop(x, y, inp, self.ks, self.ks) for x, y in zip(*self.gen_strides())])
+        self.inp = inp
+        cnvled = [numpy.sum(cnvled * k[None, :] + b, axis=tuple(range(1, 1 + len(self.inp_size)))).reshape(*self.out_shape) for k, b in zip(self.kernel, self.b)]
+        # print(numpy.array(cnvled).max(), numpy.array(cnvled).min())
+        # if self.n_filters == 1: return numpy.array(cnvled)[0]
+        self.cnvled = cnvled
+        return cnvled
+
+    def back_prop(self, errs):
+        errs[errs > self.th] = self.th
+        errs[errs < -self.th] = -self.th
+        out = list()
+        for cnt, (err, kernel) in enumerate(zip(errs, self.kernel)):
+            arr_inp = numpy.array([self.crop(x, y, self.inp, self.feat_map_size[1], self.feat_map_size[0]) for x, y in zip(*self.gen_strides_back_prop_kernel())])
+            if len(self.inp_size) == 3:
+                delta = numpy.mean(err[None, :, :, None] * arr_inp, axis=(1, 2)).reshape((self.ks, self.ks, 3))
+            else:
+                delta = numpy.mean(err[None, :, :] * arr_inp, axis=(1, 2)).reshape((self.ks, self.ks))
+
+            buf = self.kernel[cnt]
+            self.kernel[cnt] += self.alpha * delta + self.beta * (self.kernel[cnt] - self.kernel_buf[cnt])
+            self.b[cnt] += self.alpha * numpy.sum(err)
+            self.kernel_buf[cnt] = buf
+
+            arr = self.pad(err)
+            arr = numpy.array([self.crop(x, y, arr, self.ks, self.ks) for x, y in zip(*self.gen_strides_back_prop())])
+            if len(self.inp_size) == 3:
+                out.append(numpy.sum(arr[:, :, :, None] * self.flip(kernel)[None, :], axis=tuple(range(1, 1 + len(self.inp_size)))).reshape(*self.inp_size[:2]))
+            else:
+                out.append(numpy.sum(arr * self.flip(kernel)[None, :], axis=tuple(range(1, 1 + len(self.inp_size)))).reshape(*self.inp_size[:2]))
+        self.kernel = numpy.array(self.kernel)
+        self.kernel[self.kernel > self.th] = self.th
+        self.kernel[self.kernel < -self.th] = -self.th
+        # if self.n_filters == 1: out[0]
+        return out
+
+    def crop(self, x, y, arr, sizex, sizey):
+        return arr[y: y+sizey, x: x+sizex]
+
+    def pad(self, arr):
+        arr = arr.reshape(self.feat_map_size)
+        out = numpy.zeros((self.ks + self.inp_size[0], self.ks + self.inp_size[1]))
+        out[slice(self.ks, arr.shape[0] * self.stride + self.ks, self.stride), slice(self.ks, arr.shape[1] * self.stride + self.ks, self.stride)] = arr
+        return out
+
+    def gen_kernal(self):
+        for cnt, i in enumerate(self.inp_size[2:]):
+            if cnt == 0:
+                kernel = [[abs(numpy.random.normal(0., 1. / self.ks / self.ks, i)) for _ in range(self.ks)] for _ in range(self.ks)]
+                continue
+            kernel = [kernel for _ in range(i)]
+        if 'kernel' not in locals():
+            kernel = [abs(numpy.random.normal(0., 1. / self.ks / self.ks, self.ks)) for _ in range(self.ks)]
+        kernel = numpy.array(kernel)
+        # kernel = numpy.array([kernel for _ in range(numpy.prod(self.feat_map_size))])
+        kernel[kernel > 1] = 1
+        return kernel
+
+    def gen_strides(self):
+        x = numpy.arange(0, self.inp_size[1] - self.ks, self.stride)
+        y = numpy.arange(0, self.inp_size[0] - self.ks, self.stride)
+        xx, yy = numpy.meshgrid(x, y)
+        return (xx.ravel(), yy.ravel())
+
+    def gen_strides_back_prop_kernel(self):
+        x = numpy.arange(0, self.ks)
+        y = numpy.arange(0, self.ks)
+        xx, yy = numpy.meshgrid(x, y)
+        return (xx.ravel(), yy.ravel())
+
+    def gen_strides_back_prop(self):
+        x = numpy.arange(1, self.inp_size[1] + 1)
+        y = numpy.arange(1, self.inp_size[0] + 1)
+        xx, yy = numpy.meshgrid(x, y)
+        return (xx.ravel(), yy.ravel())
+
+    def flip(self, arr):
+        return numpy.fliplr(arr)[::-1]
+
+    def show_kernel(self):
+        for kernel in self.kernel:
+            # plt.hist(kernel.ravel(), bins=10)
+            # plt.show()
+            Image.fromarray((kernel - kernel.min()) / (kernel.max() - kernel.min()) * 255).show()
+
+    def show_inp(self):
+        Image.fromarray((self.inp - self.inp.min()) / (self.inp.max() - self.inp.min()) * 255).show()
+        for cnv in self.cnvled:
+            Image.fromarray((cnv - cnv.min()) / (cnv.max() - cnv.min()) * 255).show()
+
+    def reset_buf(self):
+        self.kernel_buf = copy.deepcopy(self.kernel)
+
+
+class deploy(prop):
+    def __init__(self):
+        prop.__init__(self, "deploy")
+        pass
+
+    def frwd_prop(self, inp):
+        super().frwd_prop(inp)
+        out = numpy.array(inp).ravel()
+        return out.reshape([1] + list(out.shape))
+
+    def back_prop(self, err):
+        return numpy.array([[i] for i in numpy.array(err).reshape(self.inp.shape)])
+
+
+class deploy_nested(prop):
+    def __init__(self, length, out="consol"):
+        prop.__init__(self, "deploy")
+        self.node = node(length)
+        self.out = out
+        pass
+
+    def frwd_prop(self, inp):
+        super().frwd_prop(inp)
+        return self.node.frwd_prop(numpy.array(inp).ravel())[0].reshape(self.inp.shape)
+
+    def back_prop(self, err):
+        return numpy.array([[i] for i in self.node.back_prop(numpy.array(err).ravel())[0].reshape(self.inp.shape)])
+
+
+class model(object):
+    def __init__(self):
+        self.prop = list()
+        self.gen = 0
         self.score = 999
-        self.score_prvs = 999
+        self.name = "no name"
 
-        # default settnig
-        self.funcs = list()
-        self.set_activation_func([functions.tanh, functions.relu])
-        self.cost_func = functions.square_error
-        self.initialization("gaussian", 0, self.delta)
+    def add_prop(self, props):
+        self.prop.append(props)
 
-        if "pre_units" in kwargs.keys():
-            self.pre_units = kwargs["pre_units"]
-            self.input_index = kwargs["input_index"]
-            self.unit_type = "connected"
+    def frwd_prop(self, inps):
+        for props in self.prop:
+            inps_n = list()
+            if props[0].kind == "deploy":
+                inps = props[0].frwd_prop(inps)
+            else:
+                for p, inp in zip(props, inps):
+                    inps_n.extend(p.frwd_prop(inp))
+                inps = inps_n
+        return inps
+
+    def frwd_prop_eval(self, inps):
+        for props in self.prop:
+            inps_n = list()
+            if props[0].kind == "deploy":
+                inps = props[0].frwd_prop(inps)
+            else:
+                for p, inp in zip(props, inps):
+                    inps_n.extend(p.frwd_prop_eval(inp))
+                inps = inps_n
+        return inps
+
+    def back_prop(self, tar):
+        errs, cost = self.prop[-1][0].back_prop(tar)
+        for props in self.prop[::-1][1:]:
+            if props[0].kind == "deploy":
+                errs = props[0].back_prop(errs)
+            else:
+                errs_n = list()
+                for p, err in zip(props, errs):
+                    if p.back_proptable: errs_n.extend(p.back_prop(err))
+                errs = errs_n
+        return cost
+
+    def train(self, pats, pats_e, epoch, freq=1000):
+        for _ in range(3): random.shuffle(pats)
+        flag = 0
+        errs = list()
+        start = time.time()
+        for ep in range(epoch):
+            for cnt, p in enumerate(pats):
+                inps = p[0]
+                tar = p[1]
+                self.frwd_prop(inps)
+                errs.append(self.back_prop(tar))
+                if cnt % freq == 0 and cnt != 0:
+                    if self.report(cnt, start, len(pats), errs, ep) == StopIteration:
+                        print("StopIteration")
+                        flag = 1
+                        break
+            if flag: break
+            for _ in range(3): random.shuffle(pats_e)
+            try:
+                self.eval(pats_e)
+                self.save()
+            except:
+                pass
+            self.reset_buf()
+        self.gen += 1
+        return sum(errs) / len(pats)
+
+    def check_progress(self, cnt, err, th=1e-7):
+        err = list(err)[-len(err) // 3:]
+        x = numpy.array(list(range(len(err))))
+        y = numpy.array(list(err))
+        a, _, _, _, _ = scipy.stats.linregress(x, y)
+        if numpy.array(list(err)).std() < 0.000001:
+            return StopIteration, ("saturated")
+        if numpy.array(list(err)).mean() > 10:
+            return StopIteration, ("overflow")
+        if numpy.array(list(err)).std() != numpy.array(list(err)).std():
+            return StopIteration, ("encontered nan")
+        return 1, (cnt, numpy.array(err).mean(), a)
+
+    def report(self, cnt, start, len_pat, err, epoch):
+        ratio = cnt / float(len_pat)
+        time_remain = int((time.time() - start) / ratio * (1 - ratio))
+        m, s = divmod(time_remain, 60)
+        h, m = divmod(m, 60)
+        time_remain = "%d:%02d:%02d" % (h, m, s)
+        flag, res = self.check_progress(cnt, err, 1e-6)
+        try:
+            if numpy.sign(res[2]) > 0: trend = "+"
+            else: trend = "-"
+        except: trend = "e"
+        if flag == StopIteration:
+            return StopIteration
         else:
-            self.unit_type = "isolated"
+            print ("epech[%04d], cnt[%06d], cost[%6.4s], trend[%s], [%5.1f]%%, [%s]\r" % (epoch, cnt, res[1], trend, ratio*100, time_remain), end="")
 
-    def set_activation_func(self, funcs, **kwargs):
-        if "weight" in kwargs.keys(): weight = kwargs["weight"]
-        else: weight = [1] * len(funcs)
-        for n in self.n_layers[1:]:
-            self.funcs.append(numpy.array([[f.func, f.derv, f.name] for f in [random.choice(funcs) for i in range(n)]]).T)
-
-    def initialization(self, how, *args):
-        if how == "gaussian":
-            mean, sig = args
-            for cnt, w in enumerate(self.weights):
-                self.weights[cnt] = numpy.array([numpy.random.normal(mean, sig, w.shape[1]) for i in range(w.shape[0])])
-        elif how == "random":
-            vmin, vmax = args
-            for cnt, w in enumerate(self.weights):
-                self.weights[cnt] = numpy.array([[utils.rand(-vmin, vmax) for i in range(w.shape[1])] for j in range(w.shape[0])])
-
-    def get_signal_from_pre_unit(self, inputs):
-        return utils.flatten([u.forward_propagation([inputs[i], ]).tolist() for u, i in zip(self.pre_units, self.input_index)])
-
-    def forward_propagation(self, inputs, evaluate=0):
-        if self.unit_type == "connected":
-            inputs = self.get_signal_from_pre_unit(inputs)
-        else:
-            inputs = utils.flatten(inputs)
-        inputs = numpy.append(inputs, [self.const])
-        if len(inputs) != self.n_layers[0]:
-            raise ValueError("wrong number of inputs")
-
-        self.nodes[0].set_signal(inputs)
-        for cnt, (n, n_next) in enumerate(zip(self.nodes, self.nodes[1:])):
-            n_next.set_signal(n.forward_propagation(self.funcs[cnt][0], self.weights[cnt], evaluate=evaluate))
-        return self.cost_func.func(self.nodes[-1].signal)
-
-    def back_propagation(self, targets, epoch, **kwargs):
-        """momentan SDG"""
-        if "error" in kwargs.keys():
-            error = kwargs["error"]
-        else:
-            error = self.cost_func.derv(self.nodes[-1].signal, targets)
-        if len(error) != self.n_layers[-1]:
-            print(len(error), self.n_layers[-1])
-            raise ValueError("wrong number of target values")
-        delta = 0
-        buff = self.weights
-        for cnt, (n, n_prev) in enumerate(zip(self.nodes[::-1], self.nodes[::-1][1:])):
-            if cnt != 0: error = numpy.dot(self.weights[-cnt].T, delta)
-            weight_delta, rs, delta = n_prev.back_propagation(error, self.funcs[-cnt-1][1], self.rs[-cnt-1],
-                                                              self.beta, self.alpha, self.epsilon,
-                                                              n.signal, self.gamma, self.weights[-cnt-1],
-                                                              self.weights_buff[-cnt-1], epoch, cnt, n)
-            self.weights[-cnt-1] += weight_delta
-            self.rs[-cnt-1] = rs
-            delta = delta
-        self.weights_buff = buff
-        error_in = numpy.dot(self.weights[0].T, delta)
-        return self.cost_func.cost(self.nodes[-1].signal, targets, ), error_in
-
-
-
-        # for n in range(len(self.signals[1:])):
-        #     if n != 0: error = numpy.dot(self.weights[-n].T, delta)
-        #     delta = numpy.array([f(i) for f, i in zip(self.funcs[-n-1][1], self.signals[-n-1])]) * error
-        #     self.rs[-n-1] = self.beta * self.rs[-n-1] + (1 - self.beta) * (delta * delta).mean()
-        #     self.weights[-n-1] += (self.alpha / (1 + self.epsilon * (epoch + (1+n)**-2)) * numpy.array([i * self.signals[-n-2] for i in delta / numpy.sqrt(self.rs[-n-1] + 1E-4)]) + self.gamma * (self.weights[-n-1] - self.weights_buff[-n-1]))
-        # self.weights_buff = buff
-        # error_in = numpy.dot(self.weights[0].T, delta)
-        # return self.cost_func.cost(self.signals[-1], targets, ), error_in
-
-    def evaluate(self, patterns, save=0):
+    def eval(self, patterns):
         """"""
-        cnt, corrct = 0, 0
-        error = list()
-        res = numpy.zeros(self.n_layers[-1] ** 2).reshape(self.n_layers[-1], self.n_layers[-1])
+        cnt, corr = 0, 0
+        err = list()
+        n_out = self.prop[-1][0].n
+        res = numpy.zeros(n_out ** 2).reshape(n_out, n_out)
         out = list()
         # w = numpy.array([1 / 251., 1 / 781., 1 / 451.])
         for pat in patterns:
-            p, a = pat
-            ans = numpy.array([0] * len(a))
-            ans = numpy.array(self.forward_propagation(p, evaluate=1))
+            p, tar = pat
+            ans = numpy.array([0] * len(tar))
+            ans = numpy.array(self.frwd_prop_eval(p))
             out.append(ans)
-            error.append(self.cost_func.cost(self.nodes[-1].signal, a))
-            res[list(a).index(max(a)), :] += ans
+            _, cost = self.prop[-1][0].back_prop(tar)
+            err.append(cost)
+            res[list(tar).index(max(tar)), :] += ans
             cnt += 1
-            corrct += int(list(a).index(max(a)) == list(ans).index(max(ans)))
-        for i in range(self.n_layers[-1]):
+            corr += int(list(tar).index(max(tar)) == list(ans).index(max(ans)))
+            # print(p, ans, tar)
+        for i in range(n_out):
             res[i, :] /= res[i, :].sum()
         print("-"*100)
-        print("%d / %d, %d%%, error%.3f" % (corrct, cnt, round(corrct / float(cnt) * 100., 2), sum(error) / len(error)))
-        print(pandas.DataFrame(res, columns=["pred%s" % i for i in range(self.n_layers[-1])], index=["corr%s" % i for i in range(self.n_layers[-1])]))
+        print("%d / %d, %d%%, error%.3f" % (corr, cnt, round(corr / float(cnt) * 100., 2), sum(err) / len(err)))
+        print(pandas.DataFrame(res, columns=["pred%s" % i for i in range(n_out)], index=["corr%s" % i for i in range(n_out)]))
         print("-"*100)
-        # self.score = round(corrct / float(cnt) * 100, 2)
-        self.score_prvs = self.score
-        self.score = sum(error) / len(error)
+        self.score = sum(err) / len(err)
         return ans
 
     def save(self):
         now = datetime.datetime.now()
         if not os.path.exists("./pickle"):
             os.mkdir("./pickle")
-        with open('./pickle/%s_gen%s_score%s_%s_%02d%02d_%02d%02d%02d' % (self.name, self.generation, str(self.score).replace(".", "p"), now.year, now.month, now.day, now.hour, now.minute, now.second), mode='wb') as f:
+        with open('./pickle/%s_gen%s_score%s_%s_%02d%02d_%02d%02d%02d' % (self.name, self.gen, str(self.score).replace(".", "p"), now.year, now.month, now.day, now.hour, now.minute, now.second), mode='wb') as f:
             pickle.dump(self, f)
             print("saved as % s" % f.name)
 
-    def log(self, len_pat):
-        f = open("log.txt", "a")
-        f.write("%s " % self.name + " ".join(map(str, self.n_layers)))
-        f.write(" %s %s %s %s %s " % (self.alpha, self.beta, self.gamma, self.delta, self.epsilon))
-        f.write("%s %s %s " % (self.generation, len_pat, self.score))
-        f.write(self.comment)
-        f.write("\n")
+    def reset_buf(self):
+        for p in utils.flatten(self.prop):
+            if "reset_buf" in dir(p):
+                p.reset_buf()
+                print(p.kind, "rest buf")
 
-    def check_progress(self, cnt, error, th=1e-7):
-        error = list(error)[-len(error) // 2:]
-        x = numpy.array(list(range(len(error))))
-        y = numpy.array(list(error))
-        a, _, _, _, _ = scipy.stats.linregress(x, y)
-        if numpy.array(list(error)).std() < 0.000001:
-            return StopIteration, ("saturated")
-        if numpy.array(list(error)).mean() > 10:
-            return StopIteration, ("overflow")
-        if numpy.array(list(error)).std() != numpy.array(list(error)).std():
-            return StopIteration, ("encontered nan")
-        return 1, (cnt, numpy.array(error).mean(), a)
+    def show_kernel(self):
+        for p in utils.flatten(self.prop):
+            if "show_kernel" in dir(p):
+                p.show_kernel()
 
-    def describe(self):
-        print("-"*30)
-        print("%s, gen %s" % (self.name, self.generation))
-        print("size ->", "-".join(map(str, self.n_layers)))
-        print("alpha, beta, gamma, delta, epsilon -> %-.5f, %-.2f, %-.2f, %-.5f, %-.2f" % (self.alpha, self.beta, self.gamma, self.delta, self.epsilon))
-        print("evaluation -> %s" % self.cost_func.name)
-        print("comment -> %s" % self.comment)
+    def show_inp(self):
+        for p in utils.flatten(self.prop):
+            if "show_inp" in dir(p):
+                p.show_inp()
 
-    def train(self, patterns, eval_fanc=0, arg=0, epoch=10, interval=1, save=0, fukusyu=0, pre_unit_train=0):
-        """momentam SGD"""
-        print("Start train..")
-        self.describe()
-        for i in range(epoch):
-            error, pat_fukusyu = self.online_train(patterns, i, pre_unit_train=pre_unit_train)
-            if fukusyu: self.online_train(pat_fukusyu, i, pre_unit_train=pre_unit_train)
-        if eval_fanc:
-            print("\n")
-            yield i, error, eval_fanc(*arg)
-        else:
-            yield i, error
-        self.generation += 1
-
-        if save and self.score < 1.01 and self.score < self.score_prvs: self.save()
-        self.log(len(patterns))
-
-    def online_train(self, patterns, epoch, pre_unit_train = 0, report_freq=100):
-        error = list()
-        errors = dict()
-        start = time.time()
-        for _ in range(random.randint(1, 3)): random.shuffle(patterns)
-        for cnt, p in enumerate(patterns):
-            inputs = p[0]
-            targets = p[1]
-            self.forward_propagation(inputs)
-            error_this, error_pre_units = self.back_propagation(targets, epoch)
-            if pre_unit_train and self.unit_type == "connected":
-                n_outs = [0, ]
-                for u in self.pre_units: n_outs.extend([n_outs[-1] + u.n_layers[-1]])
-                for u, i, j in zip(self.pre_units, n_outs, n_outs[1:]):
-                    u.back_propagation(-1, epoch, error=error_pre_units[i: j])
-            error.append(error_this)
-            errors.update({error_this: p})
-            if cnt % report_freq == 0 and cnt != 0:
-                self.report(cnt, start, len(patterns), error, epoch)
-        (_, patterns_fukusyu) = zip(*sorted(errors.items(), key=lambda x: x[0], reverse=1))
-        return sum(error) / len(patterns), list(patterns_fukusyu[:len(patterns) // 3])
-
-    def report(self, cnt, start, len_pat, error, epoch):
-        ratio = cnt / float(len_pat)
-        time_remain = int((time.time() - start) / ratio * (1 - ratio))
-        m, s = divmod(time_remain, 60)
-        h, m = divmod(m, 60)
-        time_remain = "%d:%02d:%02d" % (h, m, s)
-        flag, res = self.check_progress(cnt, error, 1e-6)
-        try:
-            if numpy.sign(res[2]) > 0: trend = "+"
-            else: trend = "-"
-        except: trend = "e"
-        if flag == StopIteration:
-            print(res)
-            raise StopIteration
-        else:
-            print ("epech[%04d], cnt[%06d], cost[%6.4s], trend[%s], [%5.1f]%%, [%s]\r" % (epoch, cnt, res[1], trend, ratio*100, time_remain), end="")
+if __name__ == '__main__':
+    a = numpy.array([1, 1])
+    print(len(a.shape))
