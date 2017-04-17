@@ -20,10 +20,10 @@ class cost_func(object):
 def f_tanh(x):
     return np.tanh(x)
 
-
 def f_dtanh(y):
     """d (tanh(x)) / dx = 1-tanh2(x)
     """
+    y = (y <= 1 and y >= -1) * y
     return 1. - y ** 2
 
 tanh = activation_func(f_tanh, f_dtanh, "tanh")

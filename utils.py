@@ -8,6 +8,7 @@ from matplotlib import pylab as plt
 import matplotlib.animation as animation
 import pickle
 import os
+import re
 
 
 def flatten(arr):
@@ -156,6 +157,56 @@ class animator(object):
     def func_dammy(self):
         for i, j in enumerate(range(10000)):
             yield i, j, 0.5
+
+
+class animator2(animator):
+    def __init__(self):
+        self.fig, (self.ax0) = plt.subplots(1, 1)
+        self.line0 = self.ax0.scatter(list(), list(), lw=0.5)
+        self.line = [self.line0]
+        self.xdata, self.ydata0= list(), list()
+
+    def run(self, data):
+        self.ax0.cla()
+        # update the data
+        data, ans = data
+        self.ax0.text(-1, 0, "%s" % ans)
+
+        xdata, ydata, size = [], [], []
+        for cnt, d in enumerate(data[::-1]):
+            for c, _d in enumerate(d):
+                xdata.append(cnt)
+                ydata.append(c)
+                size.append(_d)
+                self.ax0.text(cnt, c, "%6.4f" % _d)
+
+        size = np.array(size)
+        size = normalize(size) + 20
+
+        # self.xdata.append(xdata)
+        # self.ydata0.append(ydata)
+
+        self.ax0.scatter(xdata, ydata, s=size, c=size, animated=False)
+
+        self.ax0.set_xlabel("leyers")
+        self.ax0.set_ylabel("nodes")
+        self.ax0.set_xlim([-1, len(data)])
+        self.ax0.set_title("aaa")
+        self.ax0.figure.canvas.draw()
+        return [self.ax0, ]
+
+    def animation(self):
+        self.ani = animation.FuncAnimation(self.fig, self.run, self.arrange, interval=100, blit=True, repeat=False)
+        plt.show()
+
+    def arrange_for_animation(self, func):
+        self.arrange = func
+
+    def func_dammy(self):
+        for i, j in enumerate(range(10000)):
+            yield i, j, 0.5
+
+
 
 def get_pickle(name, num=3, reverse=1):
     """reverse=1: high -> low"""
