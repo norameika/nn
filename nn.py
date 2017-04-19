@@ -132,9 +132,9 @@ class fc(prop):
         self.beta = min(1, numpy.random.normal(0.8, 0.05))
         self.gamma = min(1, numpy.random.normal(0.8, 0.05))
         self.delta = 10 ** (-4 + numpy.random.normal(0, 1))
-        self.r= numpy.array([10.] * self.n_out)
-        self.initialization(0, self.delta)
-        self.alpha = 1E-4
+        self.r = numpy.array([10.] * self.n_out)
+        self.initialization(self.delta / 100., self.delta)
+        self.alpha = 1E-5
         self.beta = 0.9
         self.gamma = 0.9
         self.delta = 1E-5
@@ -146,17 +146,17 @@ class fc(prop):
     def frwd_prop(self, inp):
         inp = numpy.append(inp, [1])
         super().frwd_prop(inp)
-        out = numpy.dot(self.weight, inp)
-        self.attenuator(out)
-        return out.reshape([1] + list(out.shape))
+        out = numpy.dot(self.weight, inp) * self.n_inp / self.n_out
+        # self.attenuator(out)
+        return out.reshape([1] + list(out.shape)) 
 
     def back_prop(self, err):
         buff = self.weight
         self.r = self.beta * self.r + (1 - self.beta) * (err * err).mean()
         self.weight += self.alpha * numpy.array([i * self.inp for i in err / numpy.sqrt(self.r + 1E-6)]) + self.gamma * (self.weight - self.weight_buff)
         self.weight_buff = buff
-        out = numpy.dot(self.weight.T[:-1], err)
-        self.attenuator(out)
+        out = numpy.dot(self.weight.T[:-1], err) / self.n_inp * self.n_out
+        # self.attenuator(out)
         return out.reshape([1] + list(out.shape))
 
     def reset_buf(self):
