@@ -23,10 +23,12 @@ seaborn.set(style="darkgrid", palette="muted", color_codes=True)
 
 
 class prop(object):
-    def __init__(self, kind, *args, **kwargs):
+    def __init__(self, kind, inp_shape, err_shape, *args, **kwargs):
         self.kind = kind
         self.inp = numpy.array([])
         self.back_proptable = 1
+        self.inp_shape = inp_shape
+        self.err_shape = err_shape
 
     def frwd_prop(self, inp, *args, **kwargs):
         self.inp = numpy.array(inp)
@@ -49,6 +51,12 @@ class prop(object):
     def check_inp_dim(self, inp, *args, **kwargs):
         return len(inp.shape)
 
+    def check_gain(self, bias=0):
+        fwrd = numpy.array(self.frwd_prop((numpy.ones(numpy.prod(self.inp_shape)) + bias).reshape(self.inp_shape)))
+        back = numpy.array(self.back_prop((numpy.ones(numpy.prod(self.err_shape)) + bias).reshape(self.err_shape)))
+        print("gain - fwrd ->", "%1.9s" % (fwrd.ravel().sum() / numpy.prod(self.inp_shape)))
+        print("gain - back ->", "%1.9s" % (back.ravel().sum() / numpy.prod(self.err_shape)))
+
     def set_hyper_params(self, params):
         self.alpha, self.beta, self.gamma, self.delta = params
 
@@ -58,7 +66,7 @@ class node(prop):
     activation layer
     """
     def __init__(self, n, do=1):
-        prop.__init__(self, "node")
+        prop.__init__(self, "node", (n), (n))
         self.n = n
         self.mask = numpy.array([1] * n)
         self.funcs = [f for f in [random.choice([functions.relu, functions.tanh]) for i in range(self.n)]]
@@ -72,16 +80,19 @@ class node(prop):
         super().frwd_prop(inp)
         if self.do: self.update_dropout_mask(self.n)
         out = numpy.array([f.func(j) for f, j in zip(self.funcs, self.mask * inp)])
+        # out = out / out.sum() * inp.sum()
         return out.reshape([1] + list(out.shape))
 
     def frwd_prop_eval(self, inp):
         super().frwd_prop(inp)
         self.mask = numpy.array([1] * self.n)
         out = numpy.array([f.func(j) for f, j in zip(self.funcs, self.mask * inp)])
+        # out = out / out.sum() * inp.sum()
         return out.reshape([1] + list(out.shape))
 
     def back_prop(self, err):
         out = numpy.array([f.derv(j) for f, j in zip(self.funcs, self.mask * self.inp)] * err)
+        out = out / out.sum() * err.sum()
         return out.reshape([1] + list(out.shape))
 
     def update_dropout_mask(self, n):
@@ -91,7 +102,7 @@ class node(prop):
 
 class node_out(prop):
     def __init__(self, n):
-        prop.__init__(self, "node_out")
+        prop.__init__(self, "node_out", (n), (n))
         self.n = n
         self.func = functions.logloss
 
@@ -109,7 +120,7 @@ class fc(prop):
     fully connected layer
     """
     def __init__(self, n_inp, n_out, *args, **kwargs):
-        prop.__init__(self, "fc")
+        prop.__init__(self, "fc", n_inp, n_out)
         self.n_inp, self.n_inp_r = n_inp + 1, n_inp  # fisrt layer for constant
         self.n_out = n_out
 
@@ -123,7 +134,7 @@ class fc(prop):
         self.delta = 10 ** (-4 + numpy.random.normal(0, 1))
         self.r= numpy.array([10.] * self.n_out)
         self.initialization(0, self.delta)
-        self.alpha = 1E-3
+        self.alpha = 1E-4
         self.beta = 0.9
         self.gamma = 0.9
         self.delta = 1E-5
@@ -162,7 +173,6 @@ class fc(prop):
 
 class cnvl(prop):
     def __init__(self, ks, stride, inp_size, n_filters, zp=0, *args, **kwargs):
-        prop.__init__(self, "cnvl")
         self.ks = ks
         self.stride = stride
         self.zp = zp
@@ -173,11 +183,12 @@ class cnvl(prop):
         self.x = numpy.arange(0, self.inp_size[1] - self.ks, self.stride)
         self.y = numpy.arange(0, self.inp_size[0] - self.ks, self.stride)
         self.feat_map_size = (len(self.y), len(self.x))
+        prop.__init__(self, "cnvl", inp_size, [self.n_filters] + list(self.feat_map_size))
 
         self.out_shape = (self.feat_map_size[0], self.feat_map_size[1])
-        self.alpha = 1E-3
+        self.alpha = 1E-4
         self.beta = 0.9
-        self.delta = 1E-4
+        self.delta = 0.1
         self.th = 1.
         self.moment = [list() for _ in range(n_filters)]
         self.k = [1. for _ in range(n_filters)]
@@ -190,11 +201,13 @@ class cnvl(prop):
         if self.zp: slice(self.ks, -self.ks)
 
     def frwd_prop(self, inp):
+        inp_raw = inp
         if self.zp: inp = self.zero_padding(inp)
         cnvled = numpy.array([self.crop(x, y, inp, self.ks, self.ks) for x, y in zip(*self.gen_strides())])
         cnvled = numpy.array([numpy.sum(cnvled * k[None, :] + b, axis=tuple(range(1, 1 + len(self.inp_size)))).reshape(*self.out_shape) for k, b in zip(self.kernel, self.b)])
+        cnvled = [c / c.sum() * inp_raw.sum() for c in cnvled]
         self.inp = inp
-        self.attenuator_all(cnvled)
+        # self.attenuator_all(cnvled)
         self.cnvled = cnvled
         return cnvled
 
@@ -216,10 +229,12 @@ class cnvl(prop):
             arr = self.pad(err)
             arr = numpy.array([self.crop(x, y, arr, self.ks, self.ks) for x, y in zip(*self.gen_strides_back_prop())])
             if len(self.inp_size) == 3:
-                out.append(numpy.sum(arr[:, :, :, None] * self.flip(kernel)[None, :], axis=tuple(range(1, 1 + len(self.inp_size)))).reshape(*self.inp_size[:2])[self.out_slice, self.out_slice, :])
+                o = numpy.mean(arr[:, :, :, None] * self.flip(kernel)[None, :] / (self.ks), axis=tuple(range(1, 1 + len(self.inp_size)))).reshape(*self.inp_size[:2])[self.out_slice, self.out_slice, :]
             else:
-                out.append(numpy.sum(arr * self.flip(kernel)[None, :], axis=tuple(range(1, 1 + len(self.inp_size)))).reshape(*self.inp_size[:2])[self.out_slice, self.out_slice])
-            self.attenuator(out[-1], cnt)
+                o = numpy.mean(arr * self.flip(kernel)[None, :] / (self.ks), axis=tuple(range(1, 1 + len(self.inp_size)))).reshape(*self.inp_size[:2])[self.out_slice, self.out_slice]
+            if self.zp: o = o[self.ks: - self.ks, self.ks: - self.ks]
+            out.append(o / o.sum() * err.sum())
+            # self.attenuator(out[-1], cnt)
         self.kernel = numpy.array(self.kernel)
         return out
 
@@ -240,13 +255,13 @@ class cnvl(prop):
     def gen_kernal(self):
         for cnt, i in enumerate(self.inp_size[2:]):
             if cnt == 0:
-                kernel = [[numpy.random.normal(0., self.delta, i) for _ in range(self.ks)] for _ in range(self.ks)]
+                kernel = [[numpy.random.normal(self.delta, self.delta, i) for _ in range(self.ks)] for _ in range(self.ks)]
                 continue
             kernel = [kernel for _ in range(i)]
         if 'kernel' not in locals():
-            kernel = [numpy.random.normal(0., self.delta, self.ks) for _ in range(self.ks)]
+            kernel = [numpy.random.normal(self.delta, self.delta, self.ks) for _ in range(self.ks)]
         kernel = numpy.array(kernel)
-        kernel[kernel > 1] = 1
+        # kernel[kernel > 1] = 1
         return kernel
 
     def gen_strides(self):
@@ -304,17 +319,17 @@ class cnvl(prop):
 
 class maxpool(prop):
     def __init__(self, win_size, stride, inp_size):
-        prop.__init__(self, "maxpool")
         self.win_size = win_size
         self.stride = stride
         self.inp_size = inp_size
-        self.index_map =numpy.array([])
+        self.index_map = numpy.array([])
         self.back_prop_map = numpy.zeros(numpy.prod(self.inp_size)).reshape(*self.inp_size)
+        prop.__init__(self, "maxpool", inp_size, (self.inp_size[0] // self.stride, self.inp_size[1] // self.stride))
 
     def frwd_prop(self, inp):
         super().frwd_prop(inp)
         self.reset_back_prop_map()
-        maxpool = numpy.array([self.crop(x, y, inp, self.win_size, self.win_size) for x, y in zip(*self.gen_strides())]).reshape([self.inp_size[0] // self.stride, self.inp_size[1] // self.stride])
+        maxpool = numpy.array([self.crop(x, y, inp, self.win_size, self.win_size) for x, y in zip(*self.gen_strides())]).reshape([self.inp_size[0] // self.stride, self.inp_size[1] // self.stride]) * 4
         return maxpool.reshape([1] + list(maxpool.shape))
 
     def back_prop(self, err):
@@ -340,7 +355,7 @@ class maxpool(prop):
 
 class deploy(prop):
     def __init__(self):
-        prop.__init__(self, "deploy")
+        prop.__init__(self, "deploy", (), ())
         pass
 
     def frwd_prop(self, inp):
@@ -360,7 +375,7 @@ class deploy(prop):
 
 class deploy_nested(prop):
     def __init__(self, length):
-        prop.__init__(self, "deploy")
+        prop.__init__(self, "deploy", (length,), (length,))
         self.node = node(length, do=0)
         pass
 
