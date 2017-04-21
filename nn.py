@@ -70,7 +70,6 @@ class node(prop):
         self.n = n
         self.mask = numpy.array([1] * n)
         self.funcs = [f for f in [random.choice([functions.relu, functions.tanh]) for i in range(self.n)]]
-        # self.funcs = [f for f in [random.choice([functions.relu]) for i in range(self.n)]]
         self.do = do
 
     def set_activation(self, funcs):
@@ -80,19 +79,16 @@ class node(prop):
         super().frwd_prop(inp)
         if self.do: self.update_dropout_mask(self.n)
         out = numpy.array([f.func(j) for f, j in zip(self.funcs, self.mask * inp)])
-        # out = out / out.sum() * inp.sum()
         return out.reshape([1] + list(out.shape))
 
     def frwd_prop_eval(self, inp):
         super().frwd_prop(inp)
         self.mask = numpy.array([1] * self.n)
         out = numpy.array([f.func(j) for f, j in zip(self.funcs, self.mask * inp)])
-        # out = out / out.sum() * inp.sum()
         return out.reshape([1] + list(out.shape))
 
     def back_prop(self, err):
         out = numpy.array([f.derv(j) for f, j in zip(self.funcs, self.mask * self.inp)] * err)
-        out = out / out.sum() * err.sum()
         return out.reshape([1] + list(out.shape))
 
     def update_dropout_mask(self, n):
@@ -128,16 +124,16 @@ class fc(prop):
         self.weight_buff = copy.deepcopy(self.weight)
 
         # hyper parameters
-        self.alpha = 10 ** (-3 + numpy.random.normal(0, 1))
+        self.alpha = 10 ** (-4 + numpy.random.normal(0, 1))
         self.beta = min(1, numpy.random.normal(0.8, 0.05))
         self.gamma = min(1, numpy.random.normal(0.8, 0.05))
         self.delta = 10 ** (-4 + numpy.random.normal(0, 1))
         self.r = numpy.array([10.] * self.n_out)
         self.initialization(self.delta / 100., self.delta)
-        self.alpha = 1E-5
-        self.beta = 0.9
-        self.gamma = 0.9
-        self.delta = 1E-5
+        # self.alpha = 1E-5
+        # self.beta = 0.9
+        # self.gamma = 0.9
+        # self.delta = 1E-5
 
     def initialization(self, *args):
         mean, sig = args
@@ -146,8 +142,7 @@ class fc(prop):
     def frwd_prop(self, inp):
         inp = numpy.append(inp, [1])
         super().frwd_prop(inp)
-        out = numpy.dot(self.weight, inp) * self.n_inp / self.n_out
-        # self.attenuator(out)
+        out = numpy.dot(self.weight, inp)
         return out.reshape([1] + list(out.shape)) 
 
     def back_prop(self, err):
@@ -155,8 +150,7 @@ class fc(prop):
         self.r = self.beta * self.r + (1 - self.beta) * (err * err).mean()
         self.weight += self.alpha * numpy.array([i * self.inp for i in err / numpy.sqrt(self.r + 1E-6)]) + self.gamma * (self.weight - self.weight_buff)
         self.weight_buff = buff
-        out = numpy.dot(self.weight.T[:-1], err) / self.n_inp * self.n_out
-        # self.attenuator(out)
+        out = numpy.dot(self.weight.T[:-1], err)
         return out.reshape([1] + list(out.shape))
 
     def reset_buf(self):
@@ -177,37 +171,36 @@ class cnvl(prop):
         self.stride = stride
         self.zp = zp
         self.inp_size, self.inp_size_r = list(inp_size), list(inp_size)
-        if self.zp: self.inp_size[0] += 2 * (self.ks); self.inp_size[1] += 2 * (self.ks)
+        if self.zp:
+            self.inp_size[0] = self.inp_size[0] + 2 * self.zp
+            self.inp_size[1] = self.inp_size[1] + 2 * self.zp
         self.n_filters = n_filters
 
-        self.x = numpy.arange(0, self.inp_size[1] - self.ks, self.stride)
-        self.y = numpy.arange(0, self.inp_size[0] - self.ks, self.stride)
+        self.x = numpy.arange(0, self.inp_size[1] - self.ks + 1, self.stride)
+        self.y = numpy.arange(0, self.inp_size[0] - self.ks + 1, self.stride)
         self.feat_map_size = (len(self.y), len(self.x))
         prop.__init__(self, "cnvl", inp_size, [self.n_filters] + list(self.feat_map_size))
 
         self.out_shape = (self.feat_map_size[0], self.feat_map_size[1])
         self.alpha = 1E-4
         self.beta = 0.9
-        self.delta = 0.1
+        self.delta = 1E-1
         self.th = 1.
-        self.moment = [list() for _ in range(n_filters)]
-        self.k = [1. for _ in range(n_filters)]
 
         self.kernel = [self.gen_kernal() for _ in range(n_filters)]
         self.kernel_buf = copy.deepcopy(self.kernel)
         self.b = abs(numpy.random.normal(0., 1E-10, n_filters))
 
         self.out_slice = slice(0, None)
-        if self.zp: slice(self.ks, -self.ks)
+        if self.zp:
+            self.out_slice = slice(self.zp, -self.zp)
 
     def frwd_prop(self, inp):
         inp_raw = inp
         if self.zp: inp = self.zero_padding(inp)
         cnvled = numpy.array([self.crop(x, y, inp, self.ks, self.ks) for x, y in zip(*self.gen_strides())])
         cnvled = numpy.array([numpy.sum(cnvled * k[None, :] + b, axis=tuple(range(1, 1 + len(self.inp_size)))).reshape(*self.out_shape) for k, b in zip(self.kernel, self.b)])
-        cnvled = [c / c.sum() * inp_raw.sum() for c in cnvled]
         self.inp = inp
-        # self.attenuator_all(cnvled)
         self.cnvled = cnvled
         return cnvled
 
@@ -221,10 +214,9 @@ class cnvl(prop):
                 delta = numpy.sum(err[None, :, :] * arr_inp, axis=(1, 2)).reshape((self.ks, self.ks))
 
             buf = self.kernel[cnt]
-            self.kernel[cnt] += self.k[cnt] * self.alpha * delta + self.beta * (self.kernel[cnt] - self.kernel_buf[cnt])
-            self.b[cnt] = self.k[cnt] * self.alpha * numpy.sum(err)
+            self.kernel[cnt] += self.alpha * delta + self.beta * (self.kernel[cnt] - self.kernel_buf[cnt])
+            self.b[cnt] = self.alpha * numpy.sum(err)
             self.kernel_buf[cnt] = buf
-            self.moment[cnt].append(abs((self.kernel[cnt] - self.kernel_buf[cnt]).ravel()).sum())
 
             arr = self.pad(err)
             arr = numpy.array([self.crop(x, y, arr, self.ks, self.ks) for x, y in zip(*self.gen_strides_back_prop())])
@@ -232,9 +224,7 @@ class cnvl(prop):
                 o = numpy.mean(arr[:, :, :, None] * self.flip(kernel)[None, :] / (self.ks), axis=tuple(range(1, 1 + len(self.inp_size)))).reshape(*self.inp_size[:2])[self.out_slice, self.out_slice, :]
             else:
                 o = numpy.mean(arr * self.flip(kernel)[None, :] / (self.ks), axis=tuple(range(1, 1 + len(self.inp_size)))).reshape(*self.inp_size[:2])[self.out_slice, self.out_slice]
-            if self.zp: o = o[self.ks: - self.ks, self.ks: - self.ks]
-            out.append(o / o.sum() * err.sum())
-            # self.attenuator(out[-1], cnt)
+            out.append(o)
         self.kernel = numpy.array(self.kernel)
         return out
 
@@ -243,30 +233,30 @@ class cnvl(prop):
 
     def pad(self, arr):
         arr = arr.reshape(self.feat_map_size)
-        out = numpy.zeros((self.ks + self.inp_size[0], self.ks + self.inp_size[1]))
+        out = numpy.zeros((self.ks * 2 + self.inp_size[0], self.ks * 2 + self.inp_size[1]))
         out[slice(self.ks, arr.shape[0] * self.stride + self.ks, self.stride), slice(self.ks, arr.shape[1] * self.stride + self.ks, self.stride)] = arr
         return out
 
     def zero_padding(self, arr):
         out = numpy.zeros((self.inp_size[0], self.inp_size[1])).reshape(*self.inp_size[:2])
-        out[self.ks: - self.ks, self.ks: - self.ks] = arr
+        out[self.zp: - self.zp, self.zp: - self.zp] = arr
         return out
 
     def gen_kernal(self):
         for cnt, i in enumerate(self.inp_size[2:]):
             if cnt == 0:
-                kernel = [[numpy.random.normal(self.delta, self.delta, i) for _ in range(self.ks)] for _ in range(self.ks)]
+                kernel = [[numpy.random.normal(0, self.delta, i) for _ in range(self.ks)] for _ in range(self.ks)]
                 continue
             kernel = [kernel for _ in range(i)]
         if 'kernel' not in locals():
-            kernel = [numpy.random.normal(self.delta, self.delta, self.ks) for _ in range(self.ks)]
+            kernel = [numpy.random.normal(0, self.delta, self.ks) for _ in range(self.ks)]
         kernel = numpy.array(kernel)
         # kernel[kernel > 1] = 1
         return kernel
 
     def gen_strides(self):
-        x = numpy.arange(0, self.inp_size[1] - self.ks, self.stride)
-        y = numpy.arange(0, self.inp_size[0] - self.ks, self.stride)
+        x = numpy.arange(0, self.inp_size[1] - self.ks + 1, self.stride)
+        y = numpy.arange(0, self.inp_size[0] - self.ks + 1, self.stride)
         xx, yy = numpy.meshgrid(x, y)
         return (xx.ravel(), yy.ravel())
 
@@ -296,25 +286,6 @@ class cnvl(prop):
 
     def reset_buf(self):
         self.kernel_buf = copy.deepcopy(self.kernel)
-
-    def attenuator(self, sig, cnt):
-        a = abs(sig).max()
-        if numpy.array(self.moment[cnt]).mean() < 1E-16 and len(self.moment[cnt]) > 1000:
-            self.k[cnt] *= 2
-            self.k[cnt] = min(self.k[cnt], 1)
-            # print("updated k", self.k)
-            self.moment[cnt] = list()
-        if a > 10:
-            self.kernel[cnt][self.kernel[cnt] > abs(self.kernel[cnt]).max() / 2] = 0
-            self.kernel[cnt][self.kernel[cnt] < -abs(self.kernel[cnt]).max() / 2] = 0
-            self.kernel_buf = copy.deepcopy(self.kernel)
-            self.k[cnt] *= 0.5
-
-    def attenuator_all(self, sig):
-        a = abs(numpy.array(sig)).max()
-        if a > 10:
-            self.kernel[self.kernel > abs(self.kernel).max()/2] = 0
-            self.kernel[self.kernel < -abs(self.kernel).max()/2] = 0
 
 
 class maxpool(prop):
@@ -376,7 +347,7 @@ class deploy(prop):
 class deploy_nested(prop):
     def __init__(self, length):
         prop.__init__(self, "deploy", (length,), (length,))
-        self.node = node(length, do=0)
+        self.node = node(length, do=1)
         pass
 
     def frwd_prop(self, inp):
@@ -401,10 +372,14 @@ class model(object):
         #                      min(1, numpy.random.normal(0.8, 0.05)),
         #                      10 ** (-4 + numpy.random.normal(0, 1))]
 
-        self.hyper_params = [0.00001,
+        self.hyper_params = [[1E-6 * 3.3,
                              0.9,
                              0.9,
-                             1E-5]
+                             1E-5], 
+                             [1E-2,
+                             0.9,
+                             0.9,
+                             1E-3]]
 
     def add_prop(self, props):
         self.prop.append(props)
@@ -574,7 +549,6 @@ class model(object):
         for p in utils.flatten(self.prop):
             if "reset_buf" in dir(p):
                 p.reset_buf()
-                print(p.kind, "rest buf")
 
     def show_kernel(self):
         for p in utils.flatten(self.prop):
@@ -590,13 +564,12 @@ class model(object):
         k = 1
         l = sum([1 if p[0].kind == "cnvl" or p[0].kind == "fc" else 0 for p in self.prop])
         for pr in self.prop:
-            prams = numpy.array(self.hyper_params * numpy.array([k, 1, 1, 1]))
             for p in pr:
                 if p.kind == "cnvl":
-                    p.set_hyper_params(prams)
-                    p.__init__(p.ks, p.stride, p.inp_size_r, p.n_filters)
+                    p.set_hyper_params(self.hyper_params[1])
+                    p.__init__(p.ks, p.stride, p.inp_size_r, p.n_filters, zp=p.zp)
                 if p.kind == "fc":
-                    p.set_hyper_params(prams)
+                    p.set_hyper_params(self.hyper_params[0])
                     p.__init__(p.n_inp_r, p.n_out)
             # if p.kind == "cnvl" or p.kind == "fc":
             #     k *= numpy.exp(numpy.log(3.333) / l)
