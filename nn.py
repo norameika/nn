@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-import numpy
+import numpy as np
 import random
 import seaborn
 try:
@@ -25,17 +25,18 @@ seaborn.set(style="darkgrid", palette="muted", color_codes=True)
 class prop(object):
     def __init__(self, kind, inp_shape, err_shape, *args, **kwargs):
         self.kind = kind
-        self.inp = numpy.array([])
-        self.back_proptable = 1
         self.inp_shape = inp_shape
         self.err_shape = err_shape
+        self.inp = np.zeros(int(np.prod(self.inp_shape))).reshape(self.inp_shape)
+        self.err = np.zeros(int(np.prod(self.err_shape))).reshape(self.err_shape)
+        self.back_proptable = 1
 
     def frwd_prop(self, inp, *args, **kwargs):
-        self.inp = numpy.array(inp)
+        self.inp = np.array(inp)
         pass
 
     def frwd_prop_eval(self, inp, *args, **kwargs):
-        self.inp = numpy.array(inp)
+        self.inp = np.array(inp)
         if self.kind == "node":
             return self.frwd_prop_eval(inp)
         else:
@@ -43,6 +44,7 @@ class prop(object):
         pass
 
     def back_prop(self, err, *args, **kwargs):
+        self.err = err
         pass
 
     def back_prop_out(self, tar, *args, **kwargs):
@@ -52,10 +54,10 @@ class prop(object):
         return len(inp.shape)
 
     def check_gain(self, bias=0):
-        fwrd = numpy.array(self.frwd_prop((numpy.ones(numpy.prod(self.inp_shape)) + bias).reshape(self.inp_shape)))
-        back = numpy.array(self.back_prop((numpy.ones(numpy.prod(self.err_shape)) + bias).reshape(self.err_shape)))
-        print("gain - fwrd ->", "%1.9s" % (fwrd.ravel().sum() / numpy.prod(self.inp_shape)))
-        print("gain - back ->", "%1.9s" % (back.ravel().sum() / numpy.prod(self.err_shape)))
+        fwrd = np.array(self.frwd_prop((np.ones(np.prod(self.inp_shape)) + bias).reshape(self.inp_shape)))
+        back = np.array(self.back_prop((np.ones(np.prod(self.err_shape)) + bias).reshape(self.err_shape)))
+        print("gain - fwrd ->", "%1.9s" % (fwrd.ravel().sum() / np.prod(self.inp_shape)))
+        print("gain - back ->", "%1.9s" % (back.ravel().sum() / np.prod(self.err_shape)))
 
     def set_hyper_params(self, params):
         self.alpha, self.beta, self.gamma, self.delta = params
@@ -68,7 +70,7 @@ class node(prop):
     def __init__(self, n, do=1):
         prop.__init__(self, "node", (n), (n))
         self.n = n
-        self.mask = numpy.array([1] * n)
+        self.mask = np.array([1] * n)
         self.funcs = [f for f in [random.choice([functions.relu, functions.tanh]) for i in range(self.n)]]
         self.do = do
 
@@ -78,21 +80,22 @@ class node(prop):
     def frwd_prop(self, inp):
         super().frwd_prop(inp)
         if self.do: self.update_dropout_mask(self.n)
-        out = numpy.array([f.func(j) for f, j in zip(self.funcs, self.mask * inp)])
+        out = np.array([f.func(j) for f, j in zip(self.funcs, self.mask * inp)])
         return out.reshape([1] + list(out.shape))
 
     def frwd_prop_eval(self, inp):
         super().frwd_prop(inp)
-        self.mask = numpy.array([1] * self.n)
-        out = numpy.array([f.func(j) for f, j in zip(self.funcs, self.mask * inp)])
+        self.mask = np.array([1] * self.n)
+        out = np.array([f.func(j) for f, j in zip(self.funcs, self.mask * inp)])
         return out.reshape([1] + list(out.shape))
 
     def back_prop(self, err):
-        out = numpy.array([f.derv(j) for f, j in zip(self.funcs, self.mask * self.inp)] * err)
+        super().back_prop(err)
+        out = np.array([f.derv(j) for f, j in zip(self.funcs, self.mask * self.inp)] * err)
         return out.reshape([1] + list(out.shape))
 
     def update_dropout_mask(self, n):
-        mask = numpy.array([i < 1. and i > -1. for i in numpy.random.normal(0, 1, n)]).astype(numpy.int16)
+        mask = np.array([i < 1. and i > -1. for i in np.random.normal(0, 1, n)]).astype(np.int16)
         self.mask = mask / 0.6825
 
 
@@ -124,45 +127,43 @@ class fc(prop):
         self.weight_buff = copy.deepcopy(self.weight)
 
         # hyper parameters
-        self.alpha = 10 ** (-4 + numpy.random.normal(0, 1))
-        self.beta = min(1, numpy.random.normal(0.8, 0.05))
-        self.gamma = min(1, numpy.random.normal(0.8, 0.05))
-        self.delta = 10 ** (-4 + numpy.random.normal(0, 1))
-        self.r = numpy.array([10.] * self.n_out)
-        self.initialization(self.delta / 100., self.delta)
-        # self.alpha = 1E-5
-        # self.beta = 0.9
-        # self.gamma = 0.9
-        # self.delta = 1E-5
+        self.alpha = 10 ** (-4 + np.random.normal(0, 1))
+        self.beta = min(1, np.random.normal(0.8, 0.05))
+        self.gamma = min(1, np.random.normal(0.8, 0.05))
+        self.delta = 10 ** (-4 + np.random.normal(0, 1))
+        # self.r = np.array([10.] * self.n_out)
+        self.r = np.zeros(np.prod(self.weight.shape)).reshape(self.weight.shape) + 10.
+        self.alpha = 1E-2
+        self.beta = 0.9
+        self.gamma = 0.9
+        self.delta = 1E-6
+        self.initialization(0., self.delta)
 
     def initialization(self, *args):
         mean, sig = args
-        self.weight = numpy.array([numpy.random.normal(mean, sig, self.weight.shape[1]) for i in range(self.weight.shape[0])])
+        self.weight = np.array([np.random.normal(mean, sig, self.weight.shape[1]) for i in range(self.weight.shape[0])])
+
+    def reinit(self):
+        self.weight = np.array([np.random.normal(0, self.delta, self.weight.shape[1]) for i in range(self.weight.shape[0])])
 
     def frwd_prop(self, inp):
-        inp = numpy.append(inp, [1])
+        inp = np.append(inp, [1])
         super().frwd_prop(inp)
-        out = numpy.dot(self.weight, inp)
+        out = np.dot(self.weight, inp)
         return out.reshape([1] + list(out.shape)) 
 
     def back_prop(self, err):
+        super().back_prop(err)
+        delta = self.inp * err[:, None]
         buff = self.weight
-        self.r = self.beta * self.r + (1 - self.beta) * (err * err).mean()
-        self.weight += self.alpha * numpy.array([i * self.inp for i in err / numpy.sqrt(self.r + 1E-6)]) + self.gamma * (self.weight - self.weight_buff)
+        self.r = self.beta * self.r + (1 - self.beta) * (delta * delta)
+        self.weight += self.alpha / (np.sqrt(self.r) + 1E-4) + self.gamma * (self.weight - self.weight_buff)
         self.weight_buff = buff
-        out = numpy.dot(self.weight.T[:-1], err)
+        out = np.dot(self.weight.T[:-1], err)
         return out.reshape([1] + list(out.shape))
 
     def reset_buf(self):
         self.weight_buff = copy.deepcopy(self.weight)
-
-    def attenuator(self, sig):
-        a = abs(sig).max()
-        if a > 10:
-            self.weight[self.weight > abs(self.weight).max() / 2]
-            self.weight[self.weight < -abs(self.weight).max() / 2] = 0
-            self.weight_buff = copy.deepcopy(self.weight)
-            self.alpha *= 0.5
 
 
 class cnvl(prop):
@@ -176,30 +177,36 @@ class cnvl(prop):
             self.inp_size[1] = self.inp_size[1] + 2 * self.zp
         self.n_filters = n_filters
 
-        self.x = numpy.arange(0, self.inp_size[1] - self.ks + 1, self.stride)
-        self.y = numpy.arange(0, self.inp_size[0] - self.ks + 1, self.stride)
+        self.x = np.arange(0, self.inp_size[1] - self.ks + 1, self.stride)
+        self.y = np.arange(0, self.inp_size[0] - self.ks + 1, self.stride)
         self.feat_map_size = (len(self.y), len(self.x))
         prop.__init__(self, "cnvl", inp_size, [self.n_filters] + list(self.feat_map_size))
 
         self.out_shape = (self.feat_map_size[0], self.feat_map_size[1])
-        self.alpha = 1E-4
+        self.alpha = 1E-2
         self.beta = 0.9
-        self.delta = 1E-1
+        self.gamma = 0.9
+        self.delta = 1E-6
         self.th = 1.
 
         self.kernel = [self.gen_kernal() for _ in range(n_filters)]
         self.kernel_buf = copy.deepcopy(self.kernel)
-        self.b = abs(numpy.random.normal(0., 1E-10, n_filters))
+        self.b = abs(np.random.normal(0., 1E-10, n_filters))
+        self.r = [np.zeros(self.ks * self.ks).reshape((self.ks, self.ks)) + 10. for _ in range(n_filters)]
 
         self.out_slice = slice(0, None)
         if self.zp:
             self.out_slice = slice(self.zp, -self.zp)
 
+    def reinit(self):
+        self.kernel = [self.gen_kernal() for _ in range(self.n_filters)]
+        self.kernel_buf = copy.deepcopy(self.kernel)
+
     def frwd_prop(self, inp):
         inp_raw = inp
         if self.zp: inp = self.zero_padding(inp)
-        cnvled = numpy.array([self.crop(x, y, inp, self.ks, self.ks) for x, y in zip(*self.gen_strides())])
-        cnvled = numpy.array([numpy.sum(cnvled * k[None, :] + b, axis=tuple(range(1, 1 + len(self.inp_size)))).reshape(*self.out_shape) for k, b in zip(self.kernel, self.b)])
+        cnvled = np.array([self.crop(x, y, inp, self.ks, self.ks) for x, y in zip(*self.gen_strides())])
+        cnvled = np.array([np.sum(cnvled * k[None, :] + b, axis=tuple(range(1, 1 + len(self.inp_size)))).reshape(self.out_shape) for k, b in zip(self.kernel, self.b)])
         self.inp = inp
         self.cnvled = cnvled
         return cnvled
@@ -207,25 +214,26 @@ class cnvl(prop):
     def back_prop(self, errs):
         out = list()
         for cnt, (err, kernel) in enumerate(zip(errs, self.kernel)):
-            arr_inp = numpy.array([self.crop(x, y, self.inp, self.feat_map_size[1], self.feat_map_size[0]) for x, y in zip(*self.gen_strides_back_prop_kernel())])
+            arr_inp = np.array([self.crop(x, y, self.inp, self.feat_map_size[1], self.feat_map_size[0]) for x, y in zip(*self.gen_strides_back_prop_kernel())])
             if len(self.inp_size) == 3:
-                delta = numpy.sum(err[None, :, :, None] * arr_inp, axis=(1, 2)).reshape((self.ks, self.ks, 3))
+                delta = np.sum(err[None, :, :, None] * arr_inp, axis=(1, 2)).reshape((self.ks, self.ks, 3))
             else:
-                delta = numpy.sum(err[None, :, :] * arr_inp, axis=(1, 2)).reshape((self.ks, self.ks))
+                delta = np.sum(err[None, :, :] * arr_inp, axis=(1, 2)).reshape((self.ks, self.ks))
 
+            self.r[cnt] = self.beta * self.r[cnt] + (1 - self.beta) * (delta * delta)
             buf = self.kernel[cnt]
-            self.kernel[cnt] += self.alpha * delta + self.beta * (self.kernel[cnt] - self.kernel_buf[cnt])
-            self.b[cnt] = self.alpha * numpy.sum(err)
+            self.kernel[cnt] += self.alpha / (np.sqrt(self.r[cnt]) + 1E-4) * delta + self.gamma * (self.kernel[cnt] - self.kernel_buf[cnt])
+            self.b[cnt] = self.alpha * np.sum(err)
             self.kernel_buf[cnt] = buf
 
             arr = self.pad(err)
-            arr = numpy.array([self.crop(x, y, arr, self.ks, self.ks) for x, y in zip(*self.gen_strides_back_prop())])
+            arr = np.array([self.crop(x, y, arr, self.ks, self.ks) for x, y in zip(*self.gen_strides_back_prop())])
             if len(self.inp_size) == 3:
-                o = numpy.mean(arr[:, :, :, None] * self.flip(kernel)[None, :] / (self.ks), axis=tuple(range(1, 1 + len(self.inp_size)))).reshape(*self.inp_size[:2])[self.out_slice, self.out_slice, :]
+                o = np.mean(arr[:, :, :, None] * self.flip(kernel)[None, :], axis=tuple(range(1, 1 + len(self.inp_size)))).reshape(*self.inp_size[:2])[self.out_slice, self.out_slice, :]
             else:
-                o = numpy.mean(arr * self.flip(kernel)[None, :] / (self.ks), axis=tuple(range(1, 1 + len(self.inp_size)))).reshape(*self.inp_size[:2])[self.out_slice, self.out_slice]
+                o = np.mean(arr * self.flip(kernel)[None, :], axis=tuple(range(1, 1 + len(self.inp_size)))).reshape(*self.inp_size[:2])[self.out_slice, self.out_slice]
             out.append(o)
-        self.kernel = numpy.array(self.kernel)
+        self.kernel = np.array(self.kernel)
         return out
 
     def crop(self, x, y, arr, sizex, sizey):
@@ -233,47 +241,47 @@ class cnvl(prop):
 
     def pad(self, arr):
         arr = arr.reshape(self.feat_map_size)
-        out = numpy.zeros((self.ks * 2 + self.inp_size[0], self.ks * 2 + self.inp_size[1]))
+        out = np.zeros((self.ks * 2 + self.inp_size[0], self.ks * 2 + self.inp_size[1]))
         out[slice(self.ks, arr.shape[0] * self.stride + self.ks, self.stride), slice(self.ks, arr.shape[1] * self.stride + self.ks, self.stride)] = arr
         return out
 
     def zero_padding(self, arr):
-        out = numpy.zeros((self.inp_size[0], self.inp_size[1])).reshape(*self.inp_size[:2])
+        out = np.zeros((self.inp_size[0], self.inp_size[1])).reshape(*self.inp_size[:2])
         out[self.zp: - self.zp, self.zp: - self.zp] = arr
         return out
 
     def gen_kernal(self):
         for cnt, i in enumerate(self.inp_size[2:]):
             if cnt == 0:
-                kernel = [[numpy.random.normal(0, self.delta, i) for _ in range(self.ks)] for _ in range(self.ks)]
+                kernel = [[np.random.normal(0, self.delta, i) for _ in range(self.ks)] for _ in range(self.ks)]
                 continue
             kernel = [kernel for _ in range(i)]
         if 'kernel' not in locals():
-            kernel = [numpy.random.normal(0, self.delta, self.ks) for _ in range(self.ks)]
-        kernel = numpy.array(kernel)
+            kernel = [np.random.normal(0, self.delta, self.ks) for _ in range(self.ks)]
+        kernel = np.array(kernel)
         # kernel[kernel > 1] = 1
         return kernel
 
     def gen_strides(self):
-        x = numpy.arange(0, self.inp_size[1] - self.ks + 1, self.stride)
-        y = numpy.arange(0, self.inp_size[0] - self.ks + 1, self.stride)
-        xx, yy = numpy.meshgrid(x, y)
+        x = np.arange(0, self.inp_size[1] - self.ks + 1, self.stride)
+        y = np.arange(0, self.inp_size[0] - self.ks + 1, self.stride)
+        xx, yy = np.meshgrid(x, y)
         return (xx.ravel(), yy.ravel())
 
     def gen_strides_back_prop_kernel(self):
-        x = numpy.arange(0, self.ks)
-        y = numpy.arange(0, self.ks)
-        xx, yy = numpy.meshgrid(x, y)
+        x = np.arange(0, self.ks)
+        y = np.arange(0, self.ks)
+        xx, yy = np.meshgrid(x, y)
         return (xx.ravel(), yy.ravel())
 
     def gen_strides_back_prop(self):
-        x = numpy.arange(1, self.inp_size[1] + 1)
-        y = numpy.arange(1, self.inp_size[0] + 1)
-        xx, yy = numpy.meshgrid(x, y)
+        x = np.arange(1, self.inp_size[1] + 1)
+        y = np.arange(1, self.inp_size[0] + 1)
+        xx, yy = np.meshgrid(x, y)
         return (xx.ravel(), yy.ravel())
 
     def flip(self, arr):
-        return numpy.fliplr(arr)[::-1]
+        return np.fliplr(arr)[::-1]
 
     def show_kernel(self):
         for kernel in self.kernel:
@@ -293,35 +301,35 @@ class maxpool(prop):
         self.win_size = win_size
         self.stride = stride
         self.inp_size = inp_size
-        self.index_map = numpy.array([])
-        self.back_prop_map = numpy.zeros(numpy.prod(self.inp_size)).reshape(*self.inp_size)
+        self.index_map = np.array([])
+        self.back_prop_map = np.zeros(np.prod(self.inp_size)).reshape(*self.inp_size)
         prop.__init__(self, "maxpool", inp_size, (self.inp_size[0] // self.stride, self.inp_size[1] // self.stride))
 
     def frwd_prop(self, inp):
         super().frwd_prop(inp)
         self.reset_back_prop_map()
-        maxpool = numpy.array([self.crop(x, y, inp, self.win_size, self.win_size) for x, y in zip(*self.gen_strides())]).reshape([self.inp_size[0] // self.stride, self.inp_size[1] // self.stride]) * 4
+        maxpool = np.array([self.crop(x, y, inp, self.win_size, self.win_size) for x, y in zip(*self.gen_strides())]).reshape([self.inp_size[0] // self.stride, self.inp_size[1] // self.stride])
         return maxpool.reshape([1] + list(maxpool.shape))
 
     def back_prop(self, err):
         self.back_prop_map[self.back_prop_map == 1] = err.ravel()
-        return numpy.array([[i] for i in self.back_prop_map.reshape([1] + list(self.back_prop_map.shape))])
+        return np.array([[i] for i in self.back_prop_map.reshape([1] + list(self.back_prop_map.shape))])
 
     def crop(self, x, y, arr, sizex, sizey):
         crop = arr[y: y+sizey, x: x+sizex]
         argmax = crop.argmax()
-        index_local_map = numpy.unravel_index(argmax, [self.win_size, self.win_size])
+        index_local_map = np.unravel_index(argmax, [self.win_size, self.win_size])
         self.back_prop_map[index_local_map[0] + y, index_local_map[1] + x] = 1
         return crop.ravel()[argmax]
 
     def gen_strides(self):
-        x = numpy.arange(0, self.inp_size[1], self.stride)
-        y = numpy.arange(0, self.inp_size[0], self.stride)
-        xx, yy = numpy.meshgrid(x, y)
+        x = np.arange(0, self.inp_size[1], self.stride)
+        y = np.arange(0, self.inp_size[0], self.stride)
+        xx, yy = np.meshgrid(x, y)
         return (xx.ravel(), yy.ravel())
 
     def reset_back_prop_map(self):
-        self.back_prop_map = numpy.zeros(numpy.prod(self.inp_size)).reshape(*self.inp_size)
+        self.back_prop_map = np.zeros(np.prod(self.inp_size)).reshape(*self.inp_size)
 
 
 class deploy(prop):
@@ -331,16 +339,16 @@ class deploy(prop):
 
     def frwd_prop(self, inp):
         super().frwd_prop(inp)
-        out = numpy.array(inp).ravel()
+        out = np.array(inp).ravel()
         return out.reshape([1] + list(out.shape))
 
     def back_prop(self, err):
-        return numpy.array([[i] for i in numpy.array(err).reshape(self.inp.shape)])
+        return np.array([[i] for i in np.array(err).reshape(self.inp.shape)])
 
     def gen_strides(self):
-        x = numpy.arange(0, self.inp_size[1] - self.win_size, self.stride)
-        y = numpy.arange(0, self.inp_size[0] - self.win_size, self.stride)
-        xx, yy = numpy.meshgrid(x, y)
+        x = np.arange(0, self.inp_size[1] - self.win_size, self.stride)
+        y = np.arange(0, self.inp_size[0] - self.win_size, self.stride)
+        xx, yy = np.meshgrid(x, y)
         return (xx.ravel(), yy.ravel())
 
 
@@ -352,10 +360,10 @@ class deploy_nested(prop):
 
     def frwd_prop(self, inp):
         super().frwd_prop(inp)
-        return self.node.frwd_prop(numpy.array(inp).ravel())[0].reshape(self.inp.shape)
+        return self.node.frwd_prop(np.array(inp).ravel())[0].reshape(self.inp.shape)
 
     def back_prop(self, err):
-        return numpy.array([[i] for i in self.node.back_prop(numpy.array(err).ravel())[0].reshape(self.inp.shape)])
+        return np.array([[i] for i in self.node.back_prop(np.array(err).ravel())[0].reshape(self.inp.shape)])
 
 
 class model(object):
@@ -367,19 +375,21 @@ class model(object):
         self.errs = list()
         self.tar = 0
 
-        # self.hyper_params = [10 ** (-3 + numpy.random.normal(0, 1)),
-        #                      min(1, numpy.random.normal(0.8, 0.05)),
-        #                      min(1, numpy.random.normal(0.8, 0.05)),
-        #                      10 ** (-4 + numpy.random.normal(0, 1))]
+        # self.hyper_params = [10 ** (-3 + np.random.normal(0, 1)),
+        #                      min(1, np.random.normal(0.8, 0.05)),
+        #                      min(1, np.random.normal(0.8, 0.05)),
+        #                      10 ** (-4 + np.random.normal(0, 1))]
 
-        self.hyper_params = [[1E-6 * 3.3,
-                             0.9,
-                             0.9,
-                             1E-5], 
-                             [1E-2,
-                             0.9,
-                             0.9,
-                             1E-3]]
+        self.hyper_params = {"fc":
+                             [1E-3,
+                              0.99,
+                              0.99,
+                              1E-6],
+                             "cnvl":
+                             [1E-3,
+                              0.99,
+                              0.99,
+                              1E-6]}
 
     def add_prop(self, props):
         self.prop.append(props)
@@ -481,16 +491,16 @@ class model(object):
 
     def check_progress(self, cnt, err, th=1e-7):
         err = list(err)[-len(err) // 3:]
-        x = numpy.array(list(range(len(err))))
-        y = numpy.array(list(err))
+        x = np.array(list(range(len(err))))
+        y = np.array(list(err))
         a, _, _, _, _ = scipy.stats.linregress(x, y)
-        if numpy.array(list(err)).std() < 0.0000000001:
+        if np.array(list(err)).std() < 0.0000000001:
             return StopIteration, ("saturated")
-        if numpy.array(list(err)).mean() > 10:
+        if np.array(list(err)).mean() > 10:
             return StopIteration, ("overflow")
-        if numpy.array(list(err)).std() != numpy.array(list(err)).std():
+        if np.array(list(err)).std() != np.array(list(err)).std():
             return StopIteration, ("encontered nan")
-        return 1, (cnt, numpy.array(err).mean(), a)
+        return 1, (cnt, np.array(err).mean(), a)
 
     def report(self, cnt, start, len_pat, err, epoch):
         ratio = cnt / float(len_pat)
@@ -500,7 +510,7 @@ class model(object):
         time_remain = "%d:%02d:%02d" % (h, m, s)
         flag, res = self.check_progress(cnt, err, 1e-6)
         try:
-            if numpy.sign(res[2]) > 0: trend = "+"
+            if np.sign(res[2]) > 0: trend = "+"
             else: trend = "-"
         except: trend = "e"
         if flag == StopIteration:
@@ -514,13 +524,13 @@ class model(object):
         cnt, corr = 0, 0
         err = list()
         n_out = self.prop[-1][0].n
-        res = numpy.zeros(n_out ** 2).reshape(n_out, n_out)
+        res = np.zeros(n_out ** 2).reshape(n_out, n_out)
         out = list()
-        # w = numpy.array([1 / 251., 1 / 781., 1 / 451.])
+        # w = np.array([1 / 251., 1 / 781., 1 / 451.])
         for pat in patterns:
             p, tar = pat
-            ans = numpy.array([0] * len(tar))
-            ans = numpy.array(self.frwd_prop_eval(p))
+            ans = np.array([0] * len(tar))
+            ans = np.array(self.frwd_prop_eval(p))
             out.append(ans)
             _, cost = self.prop[-1][0].back_prop(tar)
             err.append(cost)
@@ -563,16 +573,11 @@ class model(object):
     def set_params(self):
         k = 1
         l = sum([1 if p[0].kind == "cnvl" or p[0].kind == "fc" else 0 for p in self.prop])
-        for pr in self.prop:
-            for p in pr:
-                if p.kind == "cnvl":
-                    p.set_hyper_params(self.hyper_params[1])
-                    p.__init__(p.ks, p.stride, p.inp_size_r, p.n_filters, zp=p.zp)
-                if p.kind == "fc":
-                    p.set_hyper_params(self.hyper_params[0])
-                    p.__init__(p.n_inp_r, p.n_out)
-            # if p.kind == "cnvl" or p.kind == "fc":
-            #     k *= numpy.exp(numpy.log(3.333) / l)
+        for p in utils.flatten(self.prop):
+            for kind, params in self.hyper_params.items():
+                if p.kind == kind:
+                    p.set_hyper_params(params)
+                    p.reinit()
 
     def describe(self):
         for cnt, pr in enumerate(self.prop):
@@ -580,5 +585,5 @@ class model(object):
 
 
 if __name__ == '__main__':
-    a = numpy.array([1, 1])
+    a = np.array([1, 1])
     print(len(a.shape))
