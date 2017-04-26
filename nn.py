@@ -68,6 +68,13 @@ class prop(object):
     def get_err(self):
         return self.err
 
+    def show_inp(self):
+        Image.fromarray((self.inp - self.inp.min()) / (self.inp.max() - self.inp.min()) * 255).show()
+
+    def show_out(self):
+        for out in self.frwd_prop(self.inp):
+            Image.fromarray((out - out.min()) / (out.max() - out.min()) * 255).show()
+
 
 class node(prop):
     """
@@ -140,22 +147,22 @@ class fc(prop):
         self.r = np.zeros(np.prod(self.weight.shape)).reshape(self.weight.shape) + 10.
 
         # Por
-        # self.alpha = 0.0001195227465294372
-        # # self.beta = 0.90918839287008531
-        # self.gamma = 0.90918839287008531
-        # self.delta = 2.3331811477332227e-05 por
-        self.alpha = 0.00001195227465294372
+        self.alpha = 0.0051195227465294372
         self.beta = 0.90918839287008531
-        self.gamma = 0.90918839287008531
+        self.gamma = 0.900918839287008531
         self.delta = 2.3331811477332227e-05
-        self.initialization(self.delta / 100., self.delta)
+        # self.alpha = 0.00001195227465294372
+        # self.beta = 0.90918839287008531
+        # self.gamma = 0.90918839287008531
+        # self.delta = 2.3331811477332227e-05
+        self.initialization(0, self.delta)
 
     def initialization(self, *args):
         mean, sig = args
-        self.weight = np.array([np.random.normal(mean, sig, self.weight.shape[1]) for i in range(self.weight.shape[0])])
+        self.weight = np.random.normal(mean, sig, self.weight.shape)
 
     def reinit(self):
-        self.weight = np.array([np.random.normal(0., self.delta, self.weight.shape[1]) for i in range(self.weight.shape[0])])
+        self.weight = np.random.normal(0., self.delta, self.weight.shape)
 
     def frwd_prop(self, inp):
         inp = np.append(inp, [1])
@@ -166,12 +173,15 @@ class fc(prop):
     def back_prop(self, err):
         super().back_prop(err)
         delta = self.inp * err[:, None]
-        buff = self.weight
-        self.r = self.beta * self.r + (1 - self.beta) * (delta * delta)
-        self.weight += self.alpha / (np.sqrt(self.r) + 1E-12) * delta + self.gamma * (self.weight - self.weight_buff)
-        self.weight_buff = buff
+        self.udpate_weight(delta)
         out = np.dot(self.weight.T[:-1], err)
         return out.reshape([1] + list(out.shape))
+
+    def udpate_weight(self, delta):
+        buff = self.weight
+        self.r = self.beta * self.r + (1 - self.beta) * (delta * delta)
+        self.weight += - (1 - self.gamma) * self.alpha / (np.sqrt(self.r) + 1E-12) * delta + self.gamma * (self.weight - self.weight_buff)
+        self.weight_buff = buff
 
     def reset_buf(self):
         self.weight_buff = copy.deepcopy(self.weight)
@@ -216,11 +226,12 @@ class cnvl(prop):
         self.kernel_buf = copy.deepcopy(self.kernel)
 
     def frwd_prop(self, inp):
+        super().frwd_prop(inp)
         inp_raw = inp
         if self.zp: inp = self.zero_padding(inp)
         cnvled = np.array([self.crop(x, y, inp, self.ks, self.ks) for x, y in zip(*self.gen_strides())])
         cnvled = np.array([np.sum(cnvled * k[None, :] + b, axis=tuple(range(1, 1 + len(self.inp_size)))).reshape(self.out_shape) for k, b in zip(self.kernel, self.b)])
-        self.inp = inp
+        self.inpzp = inp
         self.cnvled = cnvled
         return cnvled
 
@@ -228,33 +239,28 @@ class cnvl(prop):
         super().back_prop(errs)
         out = list()
         for cnt, (err, kernel) in enumerate(zip(errs, self.kernel)):
-            arr_inp = np.array([self.crop(x, y, self.inp, self.feat_map_size[1], self.feat_map_size[0]) for x, y in zip(*self.gen_strides_back_prop_kernel())])
-            if len(self.inp_size) == 3:
-                delta = np.sum(err[None, :, :, None] * arr_inp, axis=(1, 2)).reshape((self.ks, self.ks, 3))
-            else:
-                delta = np.sum(err[None, :, :] * arr_inp, axis=(1, 2)).reshape((self.ks, self.ks))
+            arr_inp = np.array([self.crop(x, y, self.inpzp, self.feat_map_size[1], self.feat_map_size[0]) for x, y in zip(*self.gen_strides_back_prop_kernel())])
+            delta = np.sum(err[None, :, :] * arr_inp, axis=(1, 2)).reshape((self.ks, self.ks))
 
-            buf = self.kernel[cnt]
-            self.r[cnt] = self.beta * self.r[cnt] + (1 - self.beta) * (delta * delta)
-            self.kernel[cnt] += self.alpha / (np.sqrt(self.r[cnt]) + 1E-12) * delta + self.gamma * (self.kernel[cnt] - self.kernel_buf[cnt])
-            self.kernel_buf[cnt] = buf
-
-            # buf = self.b[cnt]
-            delta = err.mean()
-            # self.rb[cnt] = self.beta * self.rb[cnt] + (1 - self.beta) * (delta * delta)
-            # self.b[cnt] += self.alpha / (np.sqrt(self.rb[cnt]) + 1E-12) * delta + self.gamma * (self.b[cnt] - self.b_buf[cnt])
-            # self.b_buf[cnt] = buf
-            self.b[cnt] += self.alpha * delta
+            self.upadte_kernel(cnt, delta, err.sum())
 
             arr = self.pad(err)
             arr = np.array([self.crop(x, y, arr, self.ks, self.ks) for x, y in zip(*self.gen_strides_back_prop())])
-            if len(self.inp_size) == 3:
-                o = np.mean(arr[:, :, :, None] * self.flip(kernel)[None, :], axis=tuple(range(1, 1 + len(self.inp_size)))).reshape(*self.inp_size[:2])[self.out_slice, self.out_slice, :]
-            else:
-                o = np.mean(arr * self.flip(kernel)[None, :], axis=tuple(range(1, 1 + len(self.inp_size)))).reshape(*self.inp_size[:2])[self.out_slice, self.out_slice]
+            o = np.sum(arr * self.flip(kernel)[None, :], axis=tuple(range(1, 1 + len(self.inp_size)))).reshape(self.inp_size)[self.out_slice, self.out_slice]
             out.append(o)
-        self.kernel = np.array(self.kernel)
         return out
+
+    def upadte_kernel(self, kn, d0, d1):
+            buf = self.kernel[kn]
+            self.r[kn] = self.beta * self.r[kn] + (1 - self.beta) * (d0 * d0)
+            self.kernel[kn] += - (1 - self.gamma) * self.alpha / (np.sqrt(self.r[kn]) + 1E-12) * d0 + self.gamma * (self.kernel[kn] - self.kernel_buf[kn])
+            self.kernel_buf[kn] = buf
+
+            buf = self.b[kn]
+            self.rb[kn] = self.beta * self.rb[kn] + (1 - self.beta) * (d1 * d1)
+            self.b[kn] += -self.alpha / (np.sqrt(self.rb[kn]) + 1E-12) * d1 + self.gamma * (self.b[kn] - self.b_buf[kn])
+            self.b_buf[kn] = buf
+            # self.b[kn] += -self.alpha * d1
 
     def crop(self, x, y, arr, sizex, sizey):
         return arr[y: y+sizey, x: x+sizex]
@@ -271,15 +277,7 @@ class cnvl(prop):
         return out
 
     def gen_kernal(self):
-        for cnt, i in enumerate(self.inp_size[2:]):
-            if cnt == 0:
-                kernel = [[np.random.normal(self.delta / 100., self.delta, i) for _ in range(self.ks)] for _ in range(self.ks)]
-                continue
-            kernel = [kernel for _ in range(i)]
-        if 'kernel' not in locals():
-            kernel = [np.random.normal(self.delta / 100., self.delta, self.ks) for _ in range(self.ks)]
-        kernel = np.array(kernel)
-        # kernel[kernel > 1] = 1
+        kernel = np.random.normal(0, self.delta, (self.ks, self.ks))
         return kernel
 
     def gen_strides(self):
@@ -306,11 +304,6 @@ class cnvl(prop):
     def show_kernel(self):
         for kernel in self.kernel:
             Image.fromarray((kernel - kernel.min()) / (kernel.max() - kernel.min()) * 255).show()
-
-    def show_inp(self):
-        Image.fromarray((self.inp - self.inp.min()) / (self.inp.max() - self.inp.min()) * 255).show()
-        for cnv in self.cnvled:
-            Image.fromarray((cnv - cnv.min()) / (cnv.max() - cnv.min()) * 255).show()
 
     def reset_buf(self):
         self.kernel_buf = copy.deepcopy(self.kernel)
@@ -349,7 +342,7 @@ class maxpool(prop):
         return (xx.ravel(), yy.ravel())
 
     def reset_back_prop_map(self):
-        self.back_prop_map = np.zeros(np.prod(self.inp_size)).reshape(*self.inp_size)
+        self.back_prop_map = np.zeros(self.inp_size)
 
 
 class deploy(prop):
@@ -394,6 +387,7 @@ class model(object):
         self.name = "no name"
         self.errs = list()
         self.tar = 0
+        self.global_control = 1,
 
         # self.hyper_prms = [10 ** (-3 + np.random.normal(0, 1)),
         #                      min(1, np.random.normal(0.8, 0.05)),
@@ -478,22 +472,22 @@ class model(object):
                         pass
             if flag: break
 
-            if fukusyu:
-                fuku = [errs.index(e) for e in sorted(errs, reverse=1)[:len(errs) // 4]]
-                for cnt, p in enumerate(pats):
-                    if cnt not in fuku: continue
-                    inps = p[0]
-                    tar = p[1]
-                    self.frwd_prop(inps)
-                    errs.append(self.back_prop(tar))
-                    if cnt % freq == 0 and cnt != 0:
-                        # yield self.errs, self.tar
-                        self.errs = list()
-                        if self.report(cnt, start, len(pats), errs, ep) == StopIteration:
-                            print("StopIteration")
-                            flag = 1
-                            break
-                if flag: break
+            # if fukusyu:
+            #     fuku = [errs.index(e) for e in sorted(errs, reverse=1)[:len(errs) // 4]]
+            #     for cnt, p in enumerate(pats):
+            #         if cnt not in fuku: continue
+            #         inps = p[0]
+            #         tar = p[1]
+            #         self.frwd_prop(inps)
+            #         errs.append(self.back_prop(tar))
+            #         if cnt % freq == 0 and cnt != 0:
+            #             # yield self.errs, self.tar
+            #             self.errs = list()
+            #             if self.report(cnt, start, len(pats), errs, ep) == StopIteration:
+            #                 print("StopIteration")
+            #                 flag = 1
+            #                 break
+            #     if flag: break
 
             for _ in range(3): random.shuffle(pats_e)
             try:
@@ -627,7 +621,9 @@ class model(object):
             print("%02dlayer" % cnt, ",".join([p.kind for p in pr]))
 
     def out_prms(self):
-        f = open("./prms.txt", "w")
+        f = open("./%s_prms.txt" % self.name, "w")
+        f.write("global controls\n")
+        f.write(",".join(map(str, self.global_control)) +"\n")
         f.write("l0, l1, alpha, beta, gamma, delta, err\n")
         for cnt0, pr in enumerate(self.prop):
             for cnt1, p in enumerate(pr):
@@ -636,21 +632,35 @@ class model(object):
         f.close()
 
     def update_prms(self):
-        f = open("./prms.txt", "r")
+        f = open("./%s_prms.txt" % self.name, "r")
         for cnt, l in enumerate(f):
-            if cnt == 0: continue
+            if cnt == 1:
+                self.global_control = list(map(float, l.split(",")))
+            if cnt <= 2: continue
             i, j, alpha, beta, gamma, delta = l.split(",")[:6]
             i, j = map(int, [i, j])
             alpha, beta, gamma, delta = map(float, [alpha, beta, gamma, delta])
-            self.prop[i][j].set_prms([alpha, beta, gamma, delta])
+            self.prop[i][j].set_prms([self.global_control[0] * alpha, beta, gamma, delta])
+        self.reset_prms()
 
     def fix_kernal(self):
         for pr in self.prop:
             for p in pr:
                 if p.kind == "cnvl": p.back_proptable = 0
 
+    def get_props(self):
+        return [p for p in utils.flatten(self.prop) if p.kind in ["cnvl", "maxpool"]]
+
+    def reset_prms(self):
+        self.global_control = 1,
+
+
 
 
 if __name__ == '__main__':
+    a = np.array([[0, 1], [2, 3]])
+    print(a.ravel(), a.argmax())
+
+    exit()
     a = np.array([1, 1])
     print(len(a.shape))
