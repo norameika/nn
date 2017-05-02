@@ -1,4 +1,4 @@
 # nn
-neural network study
+Simple neural network implementation only by numpy to understand how it works.
+Python 3.x
 
-python3.5

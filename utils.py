@@ -164,7 +164,7 @@ class animator2(animator):
         self.fig, (self.ax0) = plt.subplots(1, 1)
         self.line0 = self.ax0.scatter(list(), list(), lw=0.5)
         self.line = [self.line0]
-        self.xdata, self.ydata0= list(), list()
+        self.xdata, self.ydata0 = list(), list()
 
     def run(self, data):
         self.ax0.cla()
@@ -206,8 +206,6 @@ class animator2(animator):
         for i, j in enumerate(range(10000)):
             yield i, j, 0.5
 
-
-
 def get_pickle(name, num=3, reverse=1):
     """reverse=1: high -> low"""
     res = list()
@@ -238,12 +236,11 @@ def get_pre_trained_model(name, num, reverse=0):
             if len(ids) >= num: break
     return units
 
+
 def normalize(arr):
     arr = (arr - arr.mean()) / arr.std()
     # arr = (arr - min(arr)) / (max(arr) - min(arr))
     return arr
 
 if __name__ == '__main__':
-    ani = animator()
-    ani.arrange_for_animation(ani.func_dammy())
-    ani.animation()
+    pass
